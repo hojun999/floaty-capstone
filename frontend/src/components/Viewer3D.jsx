@@ -1,10 +1,22 @@
 import { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { createOrbitViewControls } from '../controls/createOrbitViewControls.js';
+import { createPedestrianControls } from '../controls/createPedestrianControls.js';
+import {
+  createFloorArrowMesh,
+  updateArrowTransform,
+  updateArrowVisibility,
+} from '../navigation/FloorArrows.js';
+
+const NAV_CORRIDOR_RADIUS = 0.35;
+const HUMAN_EYE_HEIGHT_RATIO = 0.025;
+const MIN_HUMAN_EYE_HEIGHT = 0.08;
+const MAX_HUMAN_EYE_HEIGHT = 0.18;
+const ROUTE_ARROW_CAMERA_FORWARD_OFFSET = 0.12;
 
 export default function Viewer3D({ selectedDest, routePoints, navGraph, navCommand }) {
   const containerRef    = useRef(null);
@@ -17,6 +29,11 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
   const navGraphDataRef = useRef(navGraph); // 이벤트 핸들러용 최신 navGraph
 
   // 거리뷰 이동 상태 (React state 아닌 ref — 매 프레임마다 쓰임)
+  const routePointsRef = useRef(routePoints);
+  const viewModeRef = useRef('orbit');
+  const orbitViewRef = useRef(null);
+  const pedestrianControlsRef = useRef(null);
+
   const svRef = useRef({
     active: false,
     transitioning: false,
@@ -30,9 +47,193 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
   });
 
   const [status, setStatus]   = useState('loading');
+  const [viewMode, setViewMode] = useState('orbit');
   const [svNodeId, setSvNodeId] = useState(null); // 현재 노드 (화살표 재렌더 트리거)
 
   useEffect(() => { navGraphDataRef.current = navGraph; }, [navGraph]);
+  useEffect(() => { routePointsRef.current = routePoints; }, [routePoints]);
+
+  const distanceToSegmentXZ = (point, a, b) => {
+    const abX = b.x - a.x;
+    const abZ = b.z - a.z;
+    const apX = point.x - a.x;
+    const apZ = point.z - a.z;
+    const lenSq = abX * abX + abZ * abZ;
+    const t = lenSq > 1e-8 ? Math.max(0, Math.min(1, (apX * abX + apZ * abZ) / lenSq)) : 0;
+    const closestX = a.x + abX * t;
+    const closestZ = a.z + abZ * t;
+    const dx = point.x - closestX;
+    const dz = point.z - closestZ;
+    return Math.sqrt(dx * dx + dz * dz);
+  };
+
+  const canMoveWithinNavCorridor = (position) => {
+    const ng = navGraphDataRef.current;
+    const t = threeRef.current;
+    if (!ng?.nodes?.length || !ng?.edges?.length || !t || !position) return true;
+
+    const off = t.plyOffset;
+    const nodeMap = Object.fromEntries(ng.nodes.map(n => [n.id, n]));
+    let minDistance = Infinity;
+
+    ng.edges.forEach(edge => {
+      const from = nodeMap[edge.from];
+      const to = nodeMap[edge.to];
+      if (!from || !to) return;
+
+      const a = { x: from.x - off.x, z: from.z - off.z };
+      const b = { x: to.x - off.x, z: to.z - off.z };
+      minDistance = Math.min(minDistance, distanceToSegmentXZ(position, a, b));
+    });
+
+    return !Number.isFinite(minDistance) || minDistance <= NAV_CORRIDOR_RADIUS;
+  };
+
+  const getNextRoutePoint = (points, fromPosition, toViewPosition) => {
+    if (!points?.length || !fromPosition || !toViewPosition) return null;
+    const minDistance = Math.max(svRef.current.eyeHeight * 1.5, 0.08);
+
+    const route = points
+      .filter(p => p.x != null && p.y != null && p.z != null)
+      .map(p => ({ raw: p, pos: toViewPosition(p) }));
+    if (route.length === 0) return null;
+
+    let nearestIndex = 0;
+    let nearestDistance = Infinity;
+    route.forEach(({ pos }, index) => {
+      const dx = pos.x - fromPosition.x;
+      const dz = pos.z - fromPosition.z;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    });
+
+    return route.slice(nearestIndex + 1).find(({ pos }) => {
+        const dx = pos.x - fromPosition.x;
+        const dz = pos.z - fromPosition.z;
+        return Math.sqrt(dx * dx + dz * dz) > minDistance;
+      })
+      ?? (nearestDistance > minDistance ? route[nearestIndex] : null);
+  };
+
+  const updateRouteArrowFromCamera = () => {
+    const group = svArrowsRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    const t = threeRef.current;
+    if (viewModeRef.current !== 'pedestrian' || !group || !camera || !controls || !t) return;
+
+    const routeArrow = group.children.find(child => child.userData?.kind === 'route');
+    if (!routeArrow) return;
+
+    const off = t.plyOffset;
+    const toV = (n) => new THREE.Vector3(n.x - off.x, n.y - off.y, n.z - off.z);
+    const floorY = controls.target.y;
+    const cameraForward = new THREE.Vector3();
+    camera.getWorldDirection(cameraForward);
+    cameraForward.y = 0;
+    if (cameraForward.lengthSq() < 1e-8) cameraForward.set(0, 0, -1);
+    cameraForward.normalize();
+
+    const from = new THREE.Vector3(
+      camera.position.x + cameraForward.x * ROUTE_ARROW_CAMERA_FORWARD_OFFSET,
+      floorY,
+      camera.position.z + cameraForward.z * ROUTE_ARROW_CAMERA_FORWARD_OFFSET,
+    );
+    const nextRoutePoint = getNextRoutePoint(routePointsRef.current, from, toV);
+    if (!nextRoutePoint) {
+      routeArrow.visible = false;
+      return;
+    }
+
+    updateArrowTransform(routeArrow, from, nextRoutePoint.pos, floorY, { forwardOffset: 0 });
+  };
+
+  const applyOrbitMode = () => {
+    const controls = controlsRef.current;
+    const camera = cameraRef.current;
+    if (!controls || !camera) return;
+
+    if (orbitViewRef.current) {
+      camera.position.copy(orbitViewRef.current.position);
+      controls.target.copy(orbitViewRef.current.target);
+    }
+
+    controls.enabled = true;
+    controls.enableRotate = true;
+    controls.enableZoom = true;
+    controls.enablePan = true;
+    controls.minDistance = 0.001;
+    controls.maxDistance = Infinity;
+    controls.update();
+  };
+
+  const placeCameraAtNode = (nodeId) => {
+    const ng       = navGraphDataRef.current;
+    const camera   = cameraRef.current;
+    const controls = controlsRef.current;
+    const t        = threeRef.current;
+    if (!ng || !camera || !controls || !t || !nodeId) return false;
+
+    const node = ng.nodes?.find(n => n.id === nodeId);
+    if (!node) return false;
+
+    const off = t.plyOffset;
+    const pos = new THREE.Vector3(node.x - off.x, node.y - off.y, node.z - off.z);
+    const eyeH = svRef.current.eyeHeight;
+
+    if (viewModeRef.current === 'pedestrian') {
+      camera.position.set(pos.x, pos.y + eyeH, pos.z);
+      pedestrianControlsRef.current?.setEyeHeight(eyeH);
+      pedestrianControlsRef.current?.setFloorY(pos.y);
+      pedestrianControlsRef.current?.syncAnglesFromCamera();
+      return true;
+    }
+
+    const viewOffset = new THREE.Vector3().subVectors(camera.position, controls.target);
+
+    if (viewOffset.lengthSq() < 1e-8) viewOffset.set(0, eyeH, eyeH);
+    viewOffset.normalize().multiplyScalar(eyeH);
+
+    camera.position.copy(pos).add(viewOffset);
+    controls.target.copy(pos);
+    pedestrianControlsRef.current?.setEyeHeight(eyeH);
+    pedestrianControlsRef.current?.setFloorY(pos.y);
+    pedestrianControlsRef.current?.syncAnglesFromCamera();
+    controls.update();
+    return true;
+  };
+
+  const applyPedestrianMode = () => {
+    const controls = controlsRef.current;
+    const camera = cameraRef.current;
+    if (!controls || !camera) return;
+
+    const eyeH = svRef.current.eyeHeight;
+    pedestrianControlsRef.current?.setEyeHeight(eyeH);
+    if (!placeCameraAtNode(svNodeId)) pedestrianControlsRef.current?.setFloorY(0);
+    controls.enabled = false;
+    controls.enableRotate = true;
+    controls.enableZoom = false;
+    controls.enablePan = false;
+    controls.minDistance = eyeH;
+    controls.maxDistance = eyeH;
+  };
+
+  useEffect(() => {
+    const previousMode = viewModeRef.current;
+    if (previousMode === 'orbit' && viewMode === 'pedestrian' && cameraRef.current && controlsRef.current) {
+      orbitViewRef.current = {
+        position: cameraRef.current.position.clone(),
+        target: controlsRef.current.target.clone(),
+      };
+    }
+    viewModeRef.current = viewMode;
+    if (viewMode === 'orbit') applyOrbitMode();
+    else applyPedestrianMode();
+  }, [viewMode, svNodeId, status]);
 
   // ─── Three.js 초기화 (한 번만) ──────────────────────────────────────────────
   useEffect(() => {
@@ -54,9 +255,18 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
+    const controls = createOrbitViewControls(camera, renderer.domElement, {
+      isKeyboardEnabled: () => viewModeRef.current === 'orbit' && !svRef.current.transitioning,
+    });
     controlsRef.current = controls;
+    const pedestrianControls = createPedestrianControls(camera, renderer.domElement, {
+      floorY: 0,
+      eyeHeight: svRef.current.eyeHeight,
+      isEnabled: () => viewModeRef.current === 'pedestrian' && !svRef.current.transitioning,
+      canMoveTo: canMoveWithinNavCorridor,
+      onTargetChange: (target) => controls.target.copy(target),
+    });
+    pedestrianControlsRef.current = pedestrianControls;
 
     const plyOffset = new THREE.Vector3();
     threeRef.current = { scene, plyOffset, renderer };
@@ -87,7 +297,12 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
 
         const box  = new THREE.Box3().setFromObject(scene);
         const size = box.getSize(new THREE.Vector3()).length();
-        svRef.current.eyeHeight = size * 0.06;
+        svRef.current.eyeHeight = THREE.MathUtils.clamp(
+          size * HUMAN_EYE_HEIGHT_RATIO,
+          MIN_HUMAN_EYE_HEIGHT,
+          MAX_HUMAN_EYE_HEIGHT,
+        );
+        pedestrianControls.setEyeHeight(svRef.current.eyeHeight);
         setStatus('ready');
       },
       undefined,
@@ -101,9 +316,11 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     };
     window.addEventListener('resize', onResize);
 
+    const clock = new THREE.Clock();
     let animId;
     const animate = () => {
       animId = requestAnimationFrame(animate);
+      const delta = clock.getDelta();
 
       // 거리뷰 이동 보간
       const sv = svRef.current;
@@ -115,20 +332,30 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
 
         if (sv.progress >= 1) {
           sv.transitioning = false;
-          controls.enabled = true;
           setSvNodeId(sv.nextNodeId);
+          pedestrianControls.setFloorY(controls.target.y);
+          pedestrianControls.syncAnglesFromCamera();
+          controls.enabled = viewModeRef.current === 'orbit';
         }
       }
 
+      controls.updateKeyboardMovement?.(delta);
+      pedestrianControls.update(delta);
+
       // 화살표 펄스 애니메이션
       if (svArrowsRef.current) {
+        updateRouteArrowFromCamera();
         const pulse = 0.85 + Math.sin(Date.now() * 0.004) * 0.15;
         svArrowsRef.current.traverse(obj => {
           if (obj.userData.isPulse) obj.scale.setScalar(pulse);
         });
+        updateArrowVisibility(svArrowsRef.current, camera, {
+          viewMode: viewModeRef.current,
+          maxDistance: 6,
+        });
       }
 
-      controls.update();
+      if (viewModeRef.current === 'orbit' || sv.transitioning) controls.update();
       renderer.render(scene, camera);
     };
     animate();
@@ -136,6 +363,8 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', onResize);
+      pedestrianControls.dispose();
+      pedestrianControlsRef.current = null;
       controls.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
@@ -159,9 +388,13 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
 
     camera.position.set(pos.x, pos.y + eyeH, pos.z);
     controls.target.copy(pos);
-    controls.minDistance = eyeH;
-    controls.maxDistance = eyeH;
-    controls.enablePan = false;
+    pedestrianControlsRef.current?.setEyeHeight(eyeH);
+    pedestrianControlsRef.current?.setFloorY(pos.y);
+    if (viewModeRef.current === 'pedestrian') {
+      controls.minDistance = eyeH;
+      controls.maxDistance = eyeH;
+      controls.enablePan = false;
+    }
     controls.update();
 
     svRef.current.active = true;
@@ -224,7 +457,10 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
       const a = nodeMap[e.from], b = nodeMap[e.to];
       if (!a || !b) return;
       const geo = new THREE.BufferGeometry().setFromPoints([toV(a), toV(b)]);
-      group.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x3b82f6 })));
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x3b82f6 }));
+      line.userData.isNavGraphEdge = true;
+      line.visible = viewModeRef.current !== 'pedestrian';
+      group.add(line);
     });
 
     const NODE_COLOR = { start: 0x22c55e, destination: 0xef4444, waypoint: 0xfbbf24, door: 0xa78bfa };
@@ -241,6 +477,13 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     t.scene.add(group);
     navGraphRef.current = group;
   }, [navGraph, status]);
+
+  useEffect(() => {
+    if (!navGraphRef.current) return;
+    navGraphRef.current.traverse(obj => {
+      if (obj.userData?.isNavGraphEdge) obj.visible = viewMode !== 'pedestrian';
+    });
+  }, [viewMode]);
 
   // ─── 경로 렌더링 ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -312,55 +555,41 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     const group = new THREE.Group();
     group.name = 'sv-arrows';
 
-    adjIds.forEach(id => {
-      const adjNode = nodeMap[id];
-      if (!adjNode) return;
-      const adjPos = toV(adjNode);
+    const camera = cameraRef.current;
+    const routeBasePos = camera && viewModeRef.current === 'pedestrian'
+      ? new THREE.Vector3(camera.position.x, curPos.y, camera.position.z)
+      : curPos;
+    const nextRoutePoint = viewModeRef.current === 'pedestrian'
+      ? getNextRoutePoint(routePoints, routeBasePos, toV)
+      : null;
 
-      const dir = new THREE.Vector3(adjPos.x - curPos.x, 0, adjPos.z - curPos.z).normalize();
+    if (nextRoutePoint) {
+      const arrow = createFloorArrowMesh(nextRoutePoint.raw.id, {
+        kind: 'route',
+        discColor: 0xf59e0b,
+        coneColor: 0xfbbf24,
+        scale: 1.25,
+      });
+      updateArrowTransform(arrow, routeBasePos, nextRoutePoint.pos, routeBasePos.y);
+      group.add(arrow);
+    } else {
+      adjIds.forEach(id => {
+        const adjNode = nodeMap[id];
+        if (!adjNode) return;
+        const adjPos = toV(adjNode);
 
-      // 현재 노드에서 약간 앞쪽 바닥에 화살표 배치
-      const arrowPos = new THREE.Vector3(
-        curPos.x + dir.x * 0.06,
-        curPos.y,
-        curPos.z + dir.z * 0.06,
-      );
+        const arrow = createFloorArrowMesh(id);
+        updateArrowTransform(arrow, curPos, adjPos, curPos.y);
+        group.add(arrow);
 
-      // 바닥 원형 베이스 (글로우 효과용)
-      const disc = new THREE.Mesh(
-        new THREE.CircleGeometry(0.03, 20),
-        new THREE.MeshBasicMaterial({
-          color: 0x0ea5e9, transparent: true, opacity: 0.35,
-          depthTest: false, side: THREE.DoubleSide,
-        }),
-      );
-      disc.position.copy(arrowPos);
-      disc.rotation.x = -Math.PI / 2;
-      disc.renderOrder = 5;
-      disc.userData.isPulse   = true;
-      disc.userData.isSvArrow = true;
-      disc.userData.nodeId    = id;
-      group.add(disc);
-
-      // 삼각 화살표 (ConeGeometry 3면 = 삼각형)
-      // 기본축 (0,1,0) → 수평 진행 방향으로 회전 → 바닥에 납작하게 눕힘
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(0.018, 0.045, 3),
-        new THREE.MeshBasicMaterial({ color: 0x38bdf8, depthTest: false }),
-      );
-      cone.position.copy(arrowPos);
-      cone.renderOrder = 6;
-      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-      cone.userData.isSvArrow = true;
-      cone.userData.nodeId    = id;
-      group.add(cone);
-    });
+      });
+    }
 
     t.scene.add(group);
     svArrowsRef.current = group;
 
     return cleanup;
-  }, [navGraph, svNodeId, status]);
+  }, [navGraph, routePoints, svNodeId, status, viewMode]);
 
   // ─── 거리뷰 클릭 · 호버 핸들러 ─────────────────────────────────────────────
   useEffect(() => {
@@ -450,6 +679,37 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
   return (
     <div className="viewer-panel" style={{ position: 'relative' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      <div style={{
+        position: 'absolute', top: 12, left: 12, zIndex: 2,
+        display: 'flex', gap: 6,
+        background: 'rgba(10,10,30,0.72)', backdropFilter: 'blur(6px)',
+        border: '1px solid rgba(255,255,255,0.16)',
+        borderRadius: 8, padding: 4,
+      }}>
+        {[
+          ['orbit', '자유시점'],
+          ['pedestrian', '보행자시점'],
+        ].map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setViewMode(mode)}
+            style={{
+              border: 0,
+              borderRadius: 6,
+              padding: '6px 10px',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 600,
+              color: viewMode === mode ? '#07111f' : 'rgba(255,255,255,0.82)',
+              background: viewMode === mode ? '#38bdf8' : 'transparent',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       {status === 'loading' && (
         <div style={{
