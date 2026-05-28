@@ -1,0 +1,570 @@
+:root {
+  --color-bg: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-surface-alt: #eeeee9;
+  --color-text: #1a1a1a;
+  --color-text-muted: #6b6b6b;
+  --color-text-hint: #9a9a9a;
+  --color-border: #e0e0dc;
+  --color-border-strong: #c8c8c2;
+  --color-primary: #2563eb;
+  --color-primary-soft: rgba(37, 99, 235, 0.08);
+  --color-primary-muted: rgba(37, 99, 235, 0.5);
+  --color-accent: #d85a30;
+  --color-success: #16a34a;
+  --color-warning: #ca8a04;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --font-body: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #111110;
+    --color-surface: #1c1c1a;
+    --color-surface-alt: #252523;
+    --color-text: #e8e8e4;
+    --color-text-muted: #9a9a94;
+    --color-text-hint: #6b6b66;
+    --color-border: #2e2e2b;
+    --color-border-strong: #3d3d38;
+    --color-primary: #60a5fa;
+    --color-primary-soft: rgba(96, 165, 250, 0.1);
+    --color-primary-muted: rgba(96, 165, 250, 0.4);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+}
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Layout ─── */
+.app-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 24px;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.app-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-logo-icon {
+  width: 32px;
+  height: 32px;
+  background: var(--color-primary);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.app-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* ─── View Switcher ─── */
+.view-switcher {
+  display: flex;
+  gap: 2px;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-md);
+  padding: 3px;
+}
+
+.view-switcher button {
+  border: none;
+  background: transparent;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: var(--font-body);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition);
+  font-weight: 500;
+}
+
+.view-switcher button:hover {
+  color: var(--color-text);
+}
+
+.view-switcher button.active {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ─── Controls Bar ─── */
+.controls-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.controls-selectors {
+  display: flex;
+  gap: 8px;
+}
+
+.search-wrapper {
+  flex: 1;
+  position: relative;
+}
+
+.search-input {
+  width: 100%;
+  padding: 9px 14px 9px 36px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: 14px;
+  font-family: var(--font-body);
+  color: var(--color-text);
+  outline: none;
+  transition: var(--transition);
+}
+
+.search-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.search-input::placeholder {
+  color: var(--color-text-hint);
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-hint);
+  pointer-events: none;
+}
+
+.search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: var(--transition);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.search-result-item:hover {
+  background: var(--color-primary-soft);
+}
+
+.search-result-floor {
+  font-size: 11px;
+  color: var(--color-text-hint);
+  background: var(--color-surface-alt);
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+.floor-select {
+  padding: 9px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: 14px;
+  font-family: var(--font-body);
+  color: var(--color-text);
+  outline: none;
+  cursor: pointer;
+  min-width: 90px;
+}
+
+.floor-select:focus {
+  border-color: var(--color-primary);
+}
+
+/* ─── Viewer Panels ─── */
+.viewer-grid {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  transition: var(--transition);
+}
+
+.viewer-grid.split {
+  grid-template-columns: 1fr 1fr;
+}
+
+.viewer-grid.single {
+  grid-template-columns: 1fr;
+}
+
+.viewer-panel {
+  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+}
+
+.viewer-panel canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.viewer-label {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  backdrop-filter: blur(8px);
+}
+
+.viewer-zoom-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.viewer-zoom-controls button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  transition: var(--transition);
+}
+
+.viewer-zoom-controls button:hover {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+/* ─── Info Cards ─── */
+.info-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.info-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+}
+
+.info-card-label {
+  font-size: 11px;
+  color: var(--color-text-hint);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.info-card-value {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ─── POI Tags ─── */
+.poi-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.poi-tag {
+  border: none;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.poi-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ─── Route Panel ─── */
+.route-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.route-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.route-title::before {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 16px;
+  background: var(--color-primary);
+  border-radius: 2px;
+}
+
+.route-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.route-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.route-step-dot.end {
+  background: var(--color-accent);
+}
+
+.route-step-line {
+  width: 1px;
+  height: 16px;
+  background: var(--color-border-strong);
+  margin-left: 3.5px;
+}
+
+/* ─── Mobile Navigation Bar ─── */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  z-index: 200;
+  padding: 0 8px;
+  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.mobile-nav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  padding: 8px 0;
+  border-radius: var(--radius-md);
+}
+
+.mobile-nav-btn.active {
+  color: var(--color-primary);
+}
+
+.mobile-nav-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 767px) {
+  .app-container {
+    padding: 16px 14px 76px;
+  }
+
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .app-title {
+    font-size: 15px;
+  }
+
+  /* 헤더 뷰 스위처는 모바일에서 숨김 (하단 네비로 대체) */
+  .view-switcher {
+    display: none;
+  }
+
+  .controls-bar {
+    flex-direction: column;
+  }
+
+  /* 모바일에서 분할뷰는 세로 스택 */
+  .viewer-grid.split {
+    grid-template-columns: 1fr;
+  }
+
+  /* 모바일 비율 조정 */
+  .viewer-panel {
+    aspect-ratio: 4 / 3;
+  }
+
+  /* 터치하기 쉽게 줌 버튼 크게 */
+  .viewer-zoom-controls button {
+    width: 38px;
+    height: 38px;
+    font-size: 18px;
+  }
+
+  /* 정보 카드: 세로 1열, 가로 배치 */
+  .info-cards {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .info-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+  }
+
+  .info-card-label {
+    margin-bottom: 0;
+  }
+
+  .info-card-value {
+    font-size: 14px;
+  }
+
+  /* POI 태그: 가로 스크롤 */
+  .poi-tags {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .poi-tags::-webkit-scrollbar {
+    display: none;
+  }
+
+  .poi-tag {
+    flex-shrink: 0;
+    padding: 6px 14px;
+  }
+
+  .route-panel {
+    padding: 14px 16px;
+  }
+
+  .route-step {
+    font-size: 12px;
+  }
+
+  /* 하단 네비 표시 */
+  .mobile-nav {
+    display: flex;
+  }
+}
