@@ -168,7 +168,7 @@ function Dashboard({ onNavigate, onOpenEditor }) {
         <div style={{ display: 'flex', gap: 8 }}>
           {onOpenEditor && (
             <button className="admin-btn admin-btn-secondary"
-              onClick={() => onOpenEditor(null, 'Open3d.ply 목업')}>
+              onClick={() => onOpenEditor(null, '')}>
               <Icon name="network" size={16} />
               그래프 에디터 테스트
             </button>

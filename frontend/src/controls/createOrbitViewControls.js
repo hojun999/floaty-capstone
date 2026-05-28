@@ -33,10 +33,9 @@ export function createOrbitViewControls(camera, domElement, options = {}) {
     if (!active) return;
 
     const distance = camera.position.distanceTo(controls.target);
-    const speed = Math.max(0.01, distance * 0.03) * deltaSeconds * 60;
+    const speed = Math.max(0.0195, distance * 0.0585) * deltaSeconds * 60;
 
     forward.subVectors(controls.target, camera.position);
-    forward.y = 0;
     if (forward.lengthSq() < 1e-8) forward.set(0, 0, -1);
     forward.normalize();
     right.crossVectors(forward, up).normalize();

@@ -235,11 +235,27 @@ body {
 }
 
 /* ─── Viewer Panels ─── */
+.navigation-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 168px;
+  gap: 14px;
+  align-items: stretch;
+  margin-bottom: 14px;
+}
+
+.navigation-sidebar {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .viewer-grid {
   display: grid;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
   transition: var(--transition);
+  min-width: 0;
 }
 
 .viewer-grid.split {
@@ -311,9 +327,9 @@ body {
 /* ─── Info Cards ─── */
 .info-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
 }
 
 .info-card {
@@ -369,6 +385,17 @@ body {
   border-radius: var(--radius-lg);
   padding: 16px 20px;
   animation: slideUp 0.3s ease;
+}
+
+.route-panel-wrap {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.navigation-sidebar .route-panel {
+  max-height: 100%;
 }
 
 @keyframes slideUp {
@@ -497,6 +524,18 @@ body {
 
   .controls-bar {
     flex-direction: column;
+  }
+
+  .navigation-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .navigation-sidebar {
+    max-height: none;
+  }
+
+  .route-panel-wrap {
+    max-height: 320px;
   }
 
   /* 모바일에서 분할뷰는 세로 스택 */

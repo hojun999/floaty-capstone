@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-const MOVE_SPEED = 0.8;
+const MOVE_SPEED = 1.56;
 const LOOK_SENSITIVITY = 0.0025;
 const MAX_PITCH = Math.PI / 2 - 0.12;
 

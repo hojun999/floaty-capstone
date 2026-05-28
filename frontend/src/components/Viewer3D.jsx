@@ -11,12 +11,17 @@ import {
   updateArrowTransform,
   updateArrowVisibility,
 } from '../navigation/FloorArrows.js';
+import { SPLAT_MODEL_TRANSFORM } from '../renderers/modelTransforms.js';
+import { createSplatRenderer } from '../renderers/SplatModelRenderer.js';
 
+const DEFAULT_MODEL_URL = '/Open3d.ply';
 const NAV_CORRIDOR_RADIUS = 0.35;
 const HUMAN_EYE_HEIGHT_RATIO = 0.025;
 const MIN_HUMAN_EYE_HEIGHT = 0.08;
 const MAX_HUMAN_EYE_HEIGHT = 0.18;
-const ROUTE_ARROW_CAMERA_FORWARD_OFFSET = 0.12;
+const ROUTE_ARROW_CAMERA_FORWARD_OFFSET = 0.1656;
+const ROUTE_ARROW_FLOOR_LIFT = 0.069575;
+const LABELED_NODE_TYPES = new Set(['start', 'door']);
 
 export default function Viewer3D({ selectedDest, routePoints, navGraph, navCommand }) {
   const containerRef    = useRef(null);
@@ -27,12 +32,17 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
   const navGraphRef     = useRef(null); // Three.js group (visual)
   const svArrowsRef     = useRef(null); // 거리뷰 바닥 화살표 그룹
   const navGraphDataRef = useRef(navGraph); // 이벤트 핸들러용 최신 navGraph
+  const nodeLabelAnchorsRef = useRef([]);
+  const nodeLabelSnapshotRef = useRef('');
 
   // 거리뷰 이동 상태 (React state 아닌 ref — 매 프레임마다 쓰임)
   const routePointsRef = useRef(routePoints);
   const viewModeRef = useRef('orbit');
+  const renderModeRef = useRef('splat');
   const orbitViewRef = useRef(null);
   const pedestrianControlsRef = useRef(null);
+  const meshModelRef = useRef(null);
+  const splatRendererRef = useRef(null);
 
   const svRef = useRef({
     active: false,
@@ -48,10 +58,75 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
 
   const [status, setStatus]   = useState('loading');
   const [viewMode, setViewMode] = useState('orbit');
+  const [renderMode] = useState('splat');
   const [svNodeId, setSvNodeId] = useState(null); // 현재 노드 (화살표 재렌더 트리거)
+  const [nodeLabels, setNodeLabels] = useState([]);
 
   useEffect(() => { navGraphDataRef.current = navGraph; }, [navGraph]);
   useEffect(() => { routePointsRef.current = routePoints; }, [routePoints]);
+
+  const getNavOffset = (threeState = threeRef.current) => {
+    if (!threeState || renderModeRef.current === 'splat') return new THREE.Vector3();
+    return threeState.plyOffset;
+  };
+
+  const updateNodeLabelOverlay = () => {
+    const container = containerRef.current;
+    const camera = cameraRef.current;
+    if (!container || !camera || nodeLabelAnchorsRef.current.length === 0) {
+      if (nodeLabelSnapshotRef.current !== '[]') {
+        nodeLabelSnapshotRef.current = '[]';
+        setNodeLabels([]);
+      }
+      return;
+    }
+
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const projected = nodeLabelAnchorsRef.current
+      .map(label => {
+        const p = label.position.clone().project(camera);
+        return {
+          id: label.id,
+          name: label.name,
+          visible: p.z >= -1 && p.z <= 1,
+          x: Math.round((p.x * 0.5 + 0.5) * width),
+          y: Math.round((-p.y * 0.5 + 0.5) * height),
+        };
+      })
+      .filter(label => label.visible);
+
+    const snapshot = JSON.stringify(projected);
+    if (snapshot !== nodeLabelSnapshotRef.current) {
+      nodeLabelSnapshotRef.current = snapshot;
+      setNodeLabels(projected);
+    }
+  };
+
+  useEffect(() => {
+    renderModeRef.current = renderMode;
+
+    if (meshModelRef.current) {
+      meshModelRef.current.visible = renderMode === 'mesh';
+    }
+
+    const splatRenderer = splatRendererRef.current;
+    if (!splatRenderer) return;
+
+    if (renderMode === 'splat') {
+      setStatus('loading');
+      splatRenderer.loadSplatModel(DEFAULT_MODEL_URL, SPLAT_MODEL_TRANSFORM)
+        .then(() => setStatus('ready'))
+        .catch((error) => {
+          console.error('Failed to load 3DGS splat model.', error);
+          setStatus('error');
+        });
+      return;
+    }
+
+    splatRenderer.unload();
+    if (meshModelRef.current) setStatus('ready');
+  }, [renderMode]);
 
   const distanceToSegmentXZ = (point, a, b) => {
     const abX = b.x - a.x;
@@ -72,7 +147,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     const t = threeRef.current;
     if (!ng?.nodes?.length || !ng?.edges?.length || !t || !position) return true;
 
-    const off = t.plyOffset;
+    const off = getNavOffset(t);
     const nodeMap = Object.fromEntries(ng.nodes.map(n => [n.id, n]));
     let minDistance = Infinity;
 
@@ -128,7 +203,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     const routeArrow = group.children.find(child => child.userData?.kind === 'route');
     if (!routeArrow) return;
 
-    const off = t.plyOffset;
+    const off = getNavOffset(t);
     const toV = (n) => new THREE.Vector3(n.x - off.x, n.y - off.y, n.z - off.z);
     const floorY = controls.target.y;
     const cameraForward = new THREE.Vector3();
@@ -148,7 +223,10 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
       return;
     }
 
-    updateArrowTransform(routeArrow, from, nextRoutePoint.pos, floorY, { forwardOffset: 0 });
+    updateArrowTransform(routeArrow, from, nextRoutePoint.pos, floorY, {
+      forwardOffset: 0,
+      floorLift: ROUTE_ARROW_FLOOR_LIFT,
+    });
   };
 
   const applyOrbitMode = () => {
@@ -180,7 +258,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     const node = ng.nodes?.find(n => n.id === nodeId);
     if (!node) return false;
 
-    const off = t.plyOffset;
+    const off = getNavOffset(t);
     const pos = new THREE.Vector3(node.x - off.x, node.y - off.y, node.z - off.z);
     const eyeH = svRef.current.eyeHeight;
 
@@ -270,9 +348,19 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
 
     const plyOffset = new THREE.Vector3();
     threeRef.current = { scene, plyOffset, renderer };
+    splatRendererRef.current = createSplatRenderer({ renderer, camera, scene });
+    if (renderModeRef.current === 'splat') {
+      setStatus('loading');
+      splatRendererRef.current.loadSplatModel(DEFAULT_MODEL_URL, SPLAT_MODEL_TRANSFORM)
+        .then(() => setStatus('ready'))
+        .catch((error) => {
+          console.error('Failed to load 3DGS splat model.', error);
+          setStatus('error');
+        });
+    }
 
     new PLYLoader().load(
-      '/Open3d.ply',
+      DEFAULT_MODEL_URL,
       (geometry) => {
         geometry.computeVertexNormals();
         geometry.computeBoundingBox();
@@ -281,14 +369,17 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
         plyOffset.copy(center);
         geometry.translate(-center.x, -center.y, -center.z);
 
-        scene.add(new THREE.Mesh(
+        const mesh = new THREE.Mesh(
           geometry,
           new THREE.MeshStandardMaterial({
             vertexColors: geometry.hasAttribute('color'),
             ...(geometry.hasAttribute('color') ? {} : { color: 0x88ccff }),
             side: THREE.DoubleSide,
           }),
-        ));
+        );
+        mesh.visible = renderModeRef.current === 'mesh';
+        meshModelRef.current = mesh;
+        scene.add(mesh);
 
         scene.add(new THREE.AmbientLight(0xffffff, 0.6));
         const dir = new THREE.DirectionalLight(0xffffff, 1.0);
@@ -351,12 +442,27 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
         });
         updateArrowVisibility(svArrowsRef.current, camera, {
           viewMode: viewModeRef.current,
-          maxDistance: 6,
+          maxDistance: 10,
         });
       }
 
       if (viewModeRef.current === 'orbit' || sv.transitioning) controls.update();
-      renderer.render(scene, camera);
+      updateNodeLabelOverlay();
+      const splatRenderer = splatRendererRef.current;
+      if (renderModeRef.current === 'splat' && splatRenderer?.isLoaded()) {
+        splatRenderer.update();
+        splatRenderer.render();
+        const savedAutoClear = renderer.autoClear;
+        const savedBackground = scene.background;
+        renderer.autoClear = false;
+        scene.background = null;
+        renderer.clearDepth();
+        renderer.render(scene, camera);
+        scene.background = savedBackground;
+        renderer.autoClear = savedAutoClear;
+      } else {
+        renderer.render(scene, camera);
+      }
     };
     animate();
 
@@ -366,6 +472,9 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
       pedestrianControls.dispose();
       pedestrianControlsRef.current = null;
       controls.dispose();
+      splatRendererRef.current?.dispose();
+      splatRendererRef.current = null;
+      meshModelRef.current = null;
       renderer.dispose();
       if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
     };
@@ -382,7 +491,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     if (!camera || !controls || !t) return;
 
     const randomNode = navGraph.nodes[Math.floor(Math.random() * navGraph.nodes.length)];
-    const off = t.plyOffset;
+    const off = getNavOffset(t);
     const pos = new THREE.Vector3(randomNode.x - off.x, randomNode.y - off.y, randomNode.z - off.z);
     const eyeH = svRef.current.eyeHeight;
 
@@ -415,7 +524,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     const node = nodeMap[navCommand.nodeId];
     if (!node) return;
 
-    const off = t.plyOffset;
+    const off = getNavOffset(t);
     const newTarget = new THREE.Vector3(node.x - off.x, node.y - off.y, node.z - off.z);
     const eyeH = svRef.current.eyeHeight;
 
@@ -444,14 +553,18 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
       t.scene.remove(navGraphRef.current);
       navGraphRef.current.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); });
       navGraphRef.current = null;
+      nodeLabelAnchorsRef.current = [];
+      nodeLabelSnapshotRef.current = '[]';
+      setNodeLabels([]);
     }
 
     const { nodes, edges } = navGraph;
     const nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]));
-    const off = t.plyOffset;
+    const off = getNavOffset(t);
     const toV = (n) => new THREE.Vector3(n.x - off.x, n.y - off.y, n.z - off.z);
 
     const group = new THREE.Group();
+    const labelAnchors = [];
 
     edges.forEach(e => {
       const a = nodeMap[e.from], b = nodeMap[e.to];
@@ -472,11 +585,19 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
       sphere.position.copy(toV(n));
       sphere.renderOrder = 1;
       group.add(sphere);
+
+      if (LABELED_NODE_TYPES.has(n.type) && n.name) {
+        const labelPosition = sphere.position.clone();
+        labelPosition.y += Math.max(svRef.current.eyeHeight * 0.45, 0.08);
+        labelAnchors.push({ id: n.id, name: n.name, position: labelPosition });
+      }
     });
 
     t.scene.add(group);
     navGraphRef.current = group;
-  }, [navGraph, status]);
+    nodeLabelAnchorsRef.current = labelAnchors;
+    updateNodeLabelOverlay();
+  }, [navGraph, status, renderMode]);
 
   useEffect(() => {
     if (!navGraphRef.current) return;
@@ -501,7 +622,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     const pts = routePoints.filter(n => n.x != null && n.y != null && n.z != null);
     if (pts.length === 0) return;
 
-    const off = t.plyOffset;
+    const off = getNavOffset(t);
     const toV = (n) => new THREE.Vector3(n.x - off.x, n.y - off.y, n.z - off.z);
 
     const group = new THREE.Group();
@@ -519,7 +640,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     group.add(new Line2(lineGeo, lineMat));
     t.scene.add(group);
     routeGroupRef.current = group;
-  }, [routePoints]);
+  }, [routePoints, renderMode]);
 
   // ─── 거리뷰 바닥 화살표 렌더링 ──────────────────────────────────────────────
   useEffect(() => {
@@ -548,7 +669,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
 
     cleanup();
 
-    const off = t.plyOffset;
+    const off = getNavOffset(t);
     const toV = (n) => new THREE.Vector3(n.x - off.x, n.y - off.y, n.z - off.z);
     const curPos = toV(curNode);
 
@@ -589,7 +710,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     svArrowsRef.current = group;
 
     return cleanup;
-  }, [navGraph, routePoints, svNodeId, status, viewMode]);
+  }, [navGraph, routePoints, svNodeId, status, viewMode, renderMode]);
 
   // ─── 거리뷰 클릭 · 호버 핸들러 ─────────────────────────────────────────────
   useEffect(() => {
@@ -636,7 +757,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
       const node = nodeMap[nodeId];
       if (!node) return;
 
-      const off = t.plyOffset;
+      const off = getNavOffset(t);
       const newTarget = new THREE.Vector3(node.x - off.x, node.y - off.y, node.z - off.z);
       const eyeH = svRef.current.eyeHeight;
 
@@ -680,35 +801,64 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     <div className="viewer-panel" style={{ position: 'relative' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-      <div style={{
-        position: 'absolute', top: 12, left: 12, zIndex: 2,
-        display: 'flex', gap: 6,
-        background: 'rgba(10,10,30,0.72)', backdropFilter: 'blur(6px)',
-        border: '1px solid rgba(255,255,255,0.16)',
-        borderRadius: 8, padding: 4,
-      }}>
-        {[
-          ['orbit', '자유시점'],
-          ['pedestrian', '보행자시점'],
-        ].map(([mode, label]) => (
-          <button
-            key={mode}
-            type="button"
-            onClick={() => setViewMode(mode)}
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2 }}>
+        {nodeLabels.map(label => (
+          <div
+            key={label.id}
             style={{
-              border: 0,
+              position: 'absolute',
+              left: label.x,
+              top: label.y,
+              transform: 'translate(-50%, -100%)',
+              padding: '4px 8px',
               borderRadius: 6,
-              padding: '6px 10px',
-              cursor: 'pointer',
+              border: '1px solid rgba(56,189,248,0.55)',
+              background: 'rgba(8,14,28,0.76)',
+              color: '#fff',
               fontSize: 12,
-              fontWeight: 600,
-              color: viewMode === mode ? '#07111f' : 'rgba(255,255,255,0.82)',
-              background: viewMode === mode ? '#38bdf8' : 'transparent',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              textShadow: '0 1px 2px rgba(0,0,0,0.5)',
             }}
           >
-            {label}
-          </button>
+            {label.name}
+          </div>
         ))}
+      </div>
+
+      <div style={{
+        position: 'absolute', top: 12, left: 12, zIndex: 3,
+        display: 'flex', gap: 8,
+      }}>
+        <div style={{
+          display: 'flex', gap: 6,
+          background: 'rgba(10,10,30,0.72)', backdropFilter: 'blur(6px)',
+          border: '1px solid rgba(255,255,255,0.16)',
+          borderRadius: 8, padding: 4,
+        }}>
+          {[
+            ['orbit', '자유시점'],
+            ['pedestrian', '보행자시점'],
+          ].map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setViewMode(mode)}
+              style={{
+                border: 0,
+                borderRadius: 6,
+                padding: '6px 10px',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+                color: viewMode === mode ? '#07111f' : 'rgba(255,255,255,0.82)',
+                background: viewMode === mode ? '#38bdf8' : 'transparent',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {status === 'loading' && (

@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 
 const ARROW_FORWARD_OFFSET = 0.06;
-const ARROW_FLOOR_LIFT = 0.002;
-const PEDESTRIAN_VISIBLE_DISTANCE = 6;
-const FORWARD_DOT_THRESHOLD = 0;
+const ARROW_FLOOR_LIFT = 0.055;
+const PEDESTRIAN_VISIBLE_DISTANCE = 10;
+const FORWARD_DOT_THRESHOLD = -0.25;
 
 const _dir = new THREE.Vector3();
 const _arrowPos = new THREE.Vector3();
@@ -30,6 +30,7 @@ export function createFloorArrowMesh(nodeIdOrOptions, maybeOptions = {}) {
       transparent: true,
       opacity: 0.35,
       depthTest: false,
+      depthWrite: false,
       side: THREE.DoubleSide,
     }),
   );
@@ -43,7 +44,11 @@ export function createFloorArrowMesh(nodeIdOrOptions, maybeOptions = {}) {
 
   const cone = new THREE.Mesh(
     new THREE.ConeGeometry(0.018, 0.045, 3),
-    new THREE.MeshBasicMaterial({ color: options.coneColor ?? 0x38bdf8, depthTest: false }),
+    new THREE.MeshBasicMaterial({
+      color: options.coneColor ?? 0x38bdf8,
+      depthTest: false,
+      depthWrite: false,
+    }),
   );
   cone.renderOrder = 6;
   cone.userData.isSvArrow = true;
@@ -68,9 +73,10 @@ export function updateArrowTransform(arrow, fromNodePosition, toNodePosition, fl
 
   _dir.normalize();
   const forwardOffset = options.forwardOffset ?? ARROW_FORWARD_OFFSET;
+  const floorLift = options.floorLift ?? ARROW_FLOOR_LIFT;
   _arrowPos.set(
     fromNodePosition.x + _dir.x * forwardOffset,
-    floorY + ARROW_FLOOR_LIFT,
+    floorY + floorLift,
     fromNodePosition.z + _dir.z * forwardOffset,
   );
 

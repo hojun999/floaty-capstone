@@ -2,8 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
+import { MODEL_ROTATION_X, SPLAT_MODEL_TRANSFORM } from '../renderers/modelTransforms.js';
+import { createSplatRenderer } from '../renderers/SplatModelRenderer.js';
+import LOCAL_NAV_GRAPH from '../data/navGraph.json';
 
 const API = 'https://port-0-backend-api-distribution-mp106n125ca57428.sel3.cloudtype.app';
+const EDITOR_MOVE_SPEED_FACTOR = 0.006;
+const EDITOR_MIN_MOVE_SPEED = 0.002;
+const EDITOR_MAX_MOVE_SPEED = 0.06;
+const EDITOR_NODE_SCALE_FACTOR = 0.015;
+const EDITOR_MIN_NODE_SCALE = 0.03;
+const EDITOR_MAX_NODE_SCALE = 0.3;
+const EDITOR_GROUND_CENTER_OFFSET_RATIO = 0.1;
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 const NODE_TYPES = {
@@ -85,9 +95,9 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
     orbit.minPolarAngle    = 0.05;
     orbit.maxPolarAngle    = Math.PI - 0.05;
     orbit.mouseButtons     = {
-      LEFT:   THREE.MOUSE.PAN,
+      LEFT:   THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT:  THREE.MOUSE.ROTATE,
+      RIGHT:  THREE.MOUSE.PAN,
     };
     renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
     orbit.update();
@@ -125,6 +135,8 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       gEdges:  [],
       downPos: null,
       drag: null,
+      splatRenderer: createSplatRenderer({ renderer, camera, scene }),
+      modelMesh: null,
       nodeScale: 1.0,  // PLY 로드 후 바운딩 박스 기준으로 갱신
     };
     threeRef.current = s;
@@ -429,17 +441,21 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       const active = ['KeyW','KeyS','KeyA','KeyD','KeyQ','KeyE'].some(k => keys.has(k));
       if (!active) return;
 
-      const dist  = camera.position.distanceTo(orbit.target);
-      const speed = Math.max(0.01, dist * 0.03);
+      const dist = camera.position.distanceTo(orbit.target);
+      const speed = THREE.MathUtils.clamp(
+        dist * EDITOR_MOVE_SPEED_FACTOR,
+        EDITOR_MIN_MOVE_SPEED,
+        EDITOR_MAX_MOVE_SPEED,
+      );
 
       // 수평 전진 방향: 카메라→타겟을 XZ 평면에 투영 (Y-up)
-      _fwd.subVectors(orbit.target, camera.position);
-      _fwd.y = 0;
+      camera.getWorldDirection(_fwd);
       if (_fwd.lengthSq() < 1e-6) _fwd.set(0, 0, -1);
       _fwd.normalize();
 
       // 수평 우측 방향
       _right.crossVectors(_fwd, new THREE.Vector3(0, 1, 0)).normalize();
+      if (_right.lengthSq() < 1e-6) _right.set(1, 0, 0);
 
       _move.set(0, 0, 0);
       if (keys.has('KeyW')) _move.addScaledVector(_fwd,   speed);
@@ -460,7 +476,20 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       rafId = requestAnimationFrame(animate);
       applyWASD();
       if (!s.drag) orbit.update();
-      renderer.render(scene, camera);
+      if (s.splatRenderer?.isLoaded()) {
+        s.splatRenderer.update();
+        s.splatRenderer.render();
+        const savedAutoClear = renderer.autoClear;
+        const savedBackground = scene.background;
+        renderer.autoClear = false;
+        scene.background = null;
+        renderer.clearDepth();
+        renderer.render(scene, camera);
+        scene.background = savedBackground;
+        renderer.autoClear = savedAutoClear;
+      } else {
+        renderer.render(scene, camera);
+      }
     };
     animate();
 
@@ -476,37 +505,108 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
     const ro = new ResizeObserver(onResize);
     ro.observe(mount);
 
+    const loadGraphData = (graph) => {
+      const graphNodes = graph?.nodes ?? [];
+      const graphEdges = graph?.edges ?? [];
+      if (!graphNodes.length) return false;
+
+      s.gNodes.forEach(n => s.removeNodeMesh(n.id));
+      s.gEdges.forEach(e => s.removeEdgeLine(e.id));
+      s.gNodes = [];
+      s.gEdges = [];
+      _nSeq = 0;
+      _eSeq = 0;
+
+      graphNodes.forEach(n => {
+        const node = { ...n, x: Number(n.x), y: Number(n.y), z: Number(n.z) };
+        s.gNodes.push(node);
+        addNodeMesh(node);
+        const m = node.id.match(/^node_(\d+)$/);
+        if (m) _nSeq = Math.max(_nSeq, parseInt(m[1]));
+      });
+
+      graphEdges.forEach(e => {
+        s.gEdges.push(e);
+        addEdgeLine(e);
+        const m = e.id.match(/^edge_(\d+)$/);
+        if (m) _eSeq = Math.max(_eSeq, parseInt(m[1]));
+      });
+
+      setNodes([...s.gNodes]);
+      setEdges([...s.gEdges]);
+      selectNode(null);
+      return true;
+    };
+
     // ─ 그래프 로드 (floor_id가 있을 때 API에서 가져옴) ───────────────────
     if (floorId) {
       fetch(`${API}/api/navigation/floors/${floorId}/graph`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
-          if (!data) return;
-          (data.nodes || []).forEach(n => {
-            const node = { ...n, x: Number(n.x), y: Number(n.y), z: Number(n.z) };
-            s.gNodes.push(node);
-            addNodeMesh(node);
-            // _nSeq 최신화 (충돌 방지)
-            const m = node.id.match(/^node_(\d+)$/);
-            if (m) _nSeq = Math.max(_nSeq, parseInt(m[1]));
-          });
-          (data.edges || []).forEach(e => {
-            s.gEdges.push(e);
-            addEdgeLine(e);
-            const m = e.id.match(/^edge_(\d+)$/);
-            if (m) _eSeq = Math.max(_eSeq, parseInt(m[1]));
-          });
-          setNodes([...s.gNodes]);
-          setEdges([...s.gEdges]);
+          const graph = data?.graph ?? data;
+          if (!loadGraphData(graph)) loadGraphData(LOCAL_NAV_GRAPH);
         })
-        .catch(() => {});
+        .catch(() => loadGraphData(LOCAL_NAV_GRAPH));
+    } else {
+      loadGraphData(LOCAL_NAV_GRAPH);
     }
 
     // ─ PLY 모델 ──────────────────────────────────────────────────────────
+    const applyModelBounds = (geo) => {
+      geo.computeBoundingBox();
+      const box = geo.boundingBox;
+      if (!box) return;
+
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      const floorY = center.y - box.getSize(new THREE.Vector3()).y * EDITOR_GROUND_CENTER_OFFSET_RATIO;
+      orbit.target.copy(center);
+      s.groundPlane.constant = -floorY;
+      grid.position.y = floorY;
+
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const maxDim = Math.max(size.x, size.z, 1);
+
+      s.nodeScale = THREE.MathUtils.clamp(
+        maxDim * EDITOR_NODE_SCALE_FACTOR,
+        EDITOR_MIN_NODE_SCALE,
+        EDITOR_MAX_NODE_SCALE,
+      );
+      s.meshes.forEach(m => m.scale.setScalar(s.nodeScale));
+      gizmo.scale.setScalar(s.nodeScale);
+
+      camera.position.set(center.x, center.y + maxDim * 0.8, center.z + maxDim);
+      orbit.update();
+    };
+
+    const loadPlyBounds = (plyUrl) => {
+      new PLYLoader().load(
+        plyUrl,
+        (geo) => {
+          geo.rotateX(MODEL_ROTATION_X);
+          applyModelBounds(geo);
+          geo.dispose();
+        },
+        undefined,
+        () => {},
+      );
+    };
+
+    const loadModel = (modelUrl) => {
+      loadPlyBounds(modelUrl);
+      s.splatRenderer.loadSplatModel(modelUrl, SPLAT_MODEL_TRANSFORM)
+        .catch((error) => {
+          console.warn('Could not render model as 3DGS in graph editor. Falling back to PLY mesh.', error);
+          loadPly(modelUrl);
+        });
+    };
+
     const loadPly = (plyUrl) => {
       new PLYLoader().load(
         plyUrl,
         (geo) => {
+          geo.rotateX(MODEL_ROTATION_X);
           geo.computeVertexNormals();
           const mat = new THREE.MeshLambertMaterial({
             vertexColors: !!geo.attributes.color,
@@ -520,16 +620,21 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
           const box    = geo.boundingBox;
           const center = new THREE.Vector3();
           box.getCenter(center);
+          const floorY = center.y - box.getSize(new THREE.Vector3()).y * EDITOR_GROUND_CENTER_OFFSET_RATIO;
           orbit.target.copy(center);
-          s.groundPlane.constant = -center.y;
-          grid.position.y        = center.y;
+          s.groundPlane.constant = -floorY;
+          grid.position.y        = floorY;
 
           const size = new THREE.Vector3();
           box.getSize(size);
           const maxDim = Math.max(size.x, size.z);
 
           // PLY 크기에 비례한 노드/기즈모 스케일 (수평 범위의 약 1.5%)
-          s.nodeScale = maxDim * 0.015;
+          s.nodeScale = THREE.MathUtils.clamp(
+            maxDim * EDITOR_NODE_SCALE_FACTOR,
+            EDITOR_MIN_NODE_SCALE,
+            EDITOR_MAX_NODE_SCALE,
+          );
           s.meshes.forEach(m => m.scale.setScalar(s.nodeScale));
           gizmo.scale.setScalar(s.nodeScale);
 
@@ -547,11 +652,11 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       fetch(`${API}/api/floors/${floorId}`)
         .then(r => r.ok ? r.json() : null)
         .then(floor => {
-          if (floor?.splat_path) loadPly(floor.splat_path);
+          if (floor?.splat_path) loadModel(floor.splat_path);
         })
         .catch(() => {});
     } else {
-      loadPly('/Open3d.ply');
+      loadModel('/Open3d.ply');
     }
 
     return () => {
@@ -560,6 +665,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup',   onKeyUp);
       orbit.dispose();
+      s.splatRenderer?.dispose();
       renderer.dispose();
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
     };
@@ -756,7 +862,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
               {saveStatus === 'saving' ? '저장 중…'
                 : saveStatus === 'saved' ? '✓ 저장됨'
                 : saveStatus === 'error' ? '✕ 저장 실패'
-                : floorId ? '저장' : '저장 (JSON 다운로드)'}
+                : '저장'}
             </button>
           </div>
         </aside>

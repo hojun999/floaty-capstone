@@ -4,8 +4,44 @@ import SearchBar from './components/SearchBar';
 import RoutePanel from './components/RoutePanel';
 import InfoCards from './components/InfoCards';
 import { fetchBuildings, fetchFloors, fetchNavGraph, fetchNavPath } from './utils/api';
-import { MOCK_DESTINATIONS, findMockPath } from './data/mockNavGraph';
 import NAV_GRAPH from './data/navGraph.json';
+
+const SEARCHABLE_NODE_TYPES = new Set(['start', 'destination', 'door']);
+
+const getSearchableNodes = (nodes = []) => (
+  nodes.filter(n => SEARCHABLE_NODE_TYPES.has(n.type))
+);
+
+const findPathInGraph = (graph, fromId, toId) => {
+  const nodes = graph?.nodes ?? [];
+  const edges = graph?.edges ?? [];
+  if (!fromId || !toId || nodes.length === 0) return [];
+  if (fromId === toId) return nodes.filter(n => n.id === fromId);
+
+  const nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]));
+  const adj = Object.fromEntries(nodes.map(n => [n.id, []]));
+  edges.forEach(edge => {
+    adj[edge.from]?.push(edge.to);
+    adj[edge.to]?.push(edge.from);
+  });
+
+  const visited = new Set([fromId]);
+  const queue = [[fromId]];
+
+  while (queue.length) {
+    const path = queue.shift();
+    const current = path[path.length - 1];
+    for (const next of adj[current] ?? []) {
+      if (visited.has(next)) continue;
+      const nextPath = [...path, next];
+      if (next === toId) return nextPath.map(id => nodeMap[id]).filter(Boolean);
+      visited.add(next);
+      queue.push(nextPath);
+    }
+  }
+
+  return [];
+};
 
 export default function App({ onEnterAdmin }) {
   const [viewMode, setViewMode] = useState('3d');
@@ -48,8 +84,7 @@ export default function App({ onEnterAdmin }) {
     setRouteError('');
 
     if (!selectedFloorId) {
-      // 층 미선택 → 목업 데이터 사용
-      setDestinations(MOCK_DESTINATIONS);
+      setDestinations(getSearchableNodes(NAV_GRAPH.nodes));
       return;
     }
 
@@ -57,11 +92,11 @@ export default function App({ onEnterAdmin }) {
     fetchNavGraph(selectedFloorId)
       .then(data => {
         const nodes = data.graph?.nodes ?? data.nodes ?? [];
-        const dests = nodes.filter(n => n.type === 'destination');
+        const dests = getSearchableNodes(nodes);
         // API에 노드가 없으면 목업으로 fallback
-        setDestinations(dests.length ? dests : MOCK_DESTINATIONS);
+        setDestinations(dests.length ? dests : getSearchableNodes(NAV_GRAPH.nodes));
       })
-      .catch(() => setDestinations(MOCK_DESTINATIONS));
+      .catch(() => setDestinations(getSearchableNodes(NAV_GRAPH.nodes)));
   }, [selectedFloorId]);
 
   // 출발지·목적지 모두 선택되면 경로 조회
@@ -73,8 +108,7 @@ export default function App({ onEnterAdmin }) {
     }
 
     if (!selectedFloorId) {
-      // 목업 BFS 경로
-      const path = findMockPath(selectedStart.id, selectedDest.id);
+      const path = findPathInGraph(NAV_GRAPH, selectedStart.id, selectedDest.id);
       if (path.length) { setRoutePath(path); setRouteError(''); }
       else { setRoutePath(null); setRouteError('경로를 찾을 수 없습니다.'); }
       return;
@@ -209,27 +243,30 @@ export default function App({ onEnterAdmin }) {
         )}
       </div>
 
-      {/* 뷰어 */}
-      <div className="viewer-grid single">
-        {viewMode === '3d' && (
-          <Viewer3D
-            selectedDest={selectedDest}
-            routePoints={routePath}
-            navGraph={NAV_GRAPH}
-            navCommand={navCommand}
+      <div className="navigation-workspace">
+        {/* 뷰어 */}
+        <div className="viewer-grid single">
+          {viewMode === '3d' && (
+            <Viewer3D
+              selectedDest={selectedDest}
+              routePoints={routePath}
+              navGraph={NAV_GRAPH}
+              navCommand={navCommand}
+            />
+          )}
+        </div>
+
+        <aside className="navigation-sidebar">
+          <InfoCards
+            currentLocation={selectedStart?.name}
+            destination={selectedDest?.name}
           />
-        )}
+
+          <div className="route-panel-wrap">
+            {routeSteps && <RoutePanel steps={routeSteps} />}
+          </div>
+        </aside>
       </div>
-
-      {/* 정보 카드 */}
-      <InfoCards
-        currentLocation={selectedStart?.name}
-        destination={selectedDest?.name}
-        estimatedTime={null}
-      />
-
-      {/* 경로 안내 패널 */}
-      {routeSteps && <RoutePanel steps={routeSteps} />}
     </div>
   );
 }
