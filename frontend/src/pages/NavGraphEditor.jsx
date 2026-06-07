@@ -4,9 +4,9 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import { MODEL_ROTATION_X, SPLAT_MODEL_TRANSFORM } from '../renderers/modelTransforms.js';
 import { createSplatRenderer } from '../renderers/SplatModelRenderer.js';
-import LOCAL_NAV_GRAPH from '../data/navGraph.json';
+import { API_BASE } from '../utils/api.js';
 
-const API = 'https://port-0-backend-api-distribution-mp106n125ca57428.sel3.cloudtype.app';
+const API = API_BASE;
 const EDITOR_MOVE_SPEED_FACTOR = 0.006;
 const EDITOR_MIN_MOVE_SPEED = 0.002;
 const EDITOR_MAX_MOVE_SPEED = 0.06;
@@ -14,12 +14,21 @@ const EDITOR_NODE_SCALE_FACTOR = 0.015;
 const EDITOR_MIN_NODE_SCALE = 0.03;
 const EDITOR_MAX_NODE_SCALE = 0.3;
 const EDITOR_GROUND_CENTER_OFFSET_RATIO = 0.1;
+const DEFAULT_MODEL_URL = '/Open3d.ply';
+const EDITOR_VIEW_BACKGROUND = 0x3f4247;
+const EDITOR_GRID_MAJOR = 0x8a8d91;
+const EDITOR_GRID_MINOR = 0x707378;
+const EDITOR_AXIS_X = 0x9a9a9a;
+const EDITOR_AXIS_Z = 0x767676;
+const EDITOR_GRID_SIZE = 100;
+const EDITOR_GRID_DIVISIONS = 100;
+const EDITOR_GRID_BOUND_PADDING = 0.35;
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 const NODE_TYPES = {
   start:       { label: '출발점',         hex: '#22c55e', color: 0x22c55e, colorSel: 0x86efac },
   destination: { label: '목적지 (길찾기)', hex: '#ef4444', color: 0xef4444, colorSel: 0xfca5a5 },
-  waypoint:    { label: '경유점',          hex: '#94a3b8', color: 0x94a3b8, colorSel: 0xcbd5e1 },
+  waypoint:    { label: '경유점',          hex: '#f97316', color: 0xf97316, colorSel: 0xfdba74 },
   door:        { label: '문 (방 전환)',    hex: '#3b82f6', color: 0x3b82f6, colorSel: 0x93c5fd },
 };
 
@@ -27,6 +36,57 @@ let _nSeq = 0;
 let _eSeq = 0;
 const mkNodeId = () => `node_${++_nSeq}`;
 const mkEdgeId = () => `edge_${++_eSeq}`;
+
+const getEditorCutModelUrl = (modelUrl) => {
+  if (!modelUrl) return modelUrl;
+  const queryIndex = modelUrl.search(/[?#]/);
+  const base = queryIndex === -1 ? modelUrl : modelUrl.slice(0, queryIndex);
+  const suffix = queryIndex === -1 ? '' : modelUrl.slice(queryIndex);
+  if (/\.ply$/i.test(base)) return base.replace(/(\.ply)$/i, '_editor_cut$1') + suffix;
+  return `${base}_editor_cut${suffix}`;
+};
+
+const sanitizeFloorFolderName = (name) => (
+  String(name || '')
+    .trim()
+    .replace(/[\\/:*?"<>|#%{}^~[\]`]/g, '-')
+    .replace(/\s+/g, ' ')
+);
+
+const getLocalFloorModelUrls = (floor) => {
+  if (!floor?.building_id || !floor?.id) return [];
+  const base = `/models/buildings/${floor.building_id}/floors/${floor.id}`;
+  return [`${base}/model`, `${base}/model.ply`];
+};
+
+const isUsableModelResponse = (response) => {
+  if (!response.ok) return false;
+  const contentType = response.headers.get('content-type') || '';
+  return !contentType.toLowerCase().includes('text/html');
+};
+
+const pickFirstExistingUrl = async (urls) => {
+  const candidates = urls.filter(Boolean);
+  for (const url of candidates) {
+    if (url === DEFAULT_MODEL_URL) return url;
+    try {
+      const response = await fetch(url, { method: 'HEAD' });
+      if (isUsableModelResponse(response)) return url;
+    } catch {}
+  }
+  return DEFAULT_MODEL_URL;
+};
+
+const pickEditorModelUrl = async (modelUrl) => {
+  const editorUrl = getEditorCutModelUrl(modelUrl);
+  if (!editorUrl || editorUrl === modelUrl) return modelUrl;
+  try {
+    const response = await fetch(editorUrl, { method: 'HEAD' });
+    return isUsableModelResponse(response) ? editorUrl : modelUrl;
+  } catch {
+    return modelUrl;
+  }
+};
 
 // ─── 기즈모 화살표 메시 생성 ─────────────────────────────────────────────────
 function makeArrow(color) {
@@ -43,7 +103,7 @@ function makeArrow(color) {
 }
 
 // ─── 컴포넌트 ─────────────────────────────────────────────────────────────────
-export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
+export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGraph }) {
   const mountRef   = useRef(null);
   const threeRef   = useRef(null);
   const addModeRef = useRef(false);
@@ -55,6 +115,9 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
   const [addMode,    setAddMode]    = useState(false);
   const [form,       setForm]       = useState({ name: '', type: 'waypoint', x: 0, y: 0, z: 0 });
   const [saveStatus, setSaveStatus] = useState(''); // '' | 'saving' | 'saved' | 'error'
+  const [showGrid, setShowGrid] = useState(true);
+
+  const showGridRef = useRef(true);
 
   // ─── Three.js 초기화 ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -70,7 +133,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
 
     // ─ Scene ─────────────────────────────────────────────────────────────
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a2e);
+    scene.background = new THREE.Color(EDITOR_VIEW_BACKGROUND);
 
     // ─ Camera — Y-up (PLY 좌표계 기준) ──────────────────────────────────
     const camera = new THREE.PerspectiveCamera(45, mount.clientWidth / mount.clientHeight, 0.01, 1000);
@@ -83,7 +146,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
     scene.add(dirLight);
 
     // ─ Grid (XZ 평면, Y-up 기준 바닥) ────────────────────────────────────
-    const grid = new THREE.GridHelper(100, 100, 0x2a3055, 0x1e2444);
+    const grid = new THREE.Group();
     scene.add(grid);
 
     // ─ OrbitControls — 레퍼런스와 완전히 동일한 설정 ───────────────────
@@ -91,7 +154,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
     orbit.enableDamping    = true;
     orbit.dampingFactor    = 0.1;       // 기본 0.05보다 빠른 응답감
     orbit.screenSpacePanning = true;
-    orbit.rotateSpeed      = 1;
+    orbit.rotateSpeed      = 0.5;
     orbit.minPolarAngle    = 0.05;
     orbit.maxPolarAngle    = Math.PI - 0.05;
     orbit.mouseButtons     = {
@@ -108,12 +171,12 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
 
     // ─ 기즈모 (Unity 스타일 축 이동 핸들) ───────────────────────────────
     // Y-up: 수평 이동 축은 X(빨강)와 Z(파랑)
-    const xArr = makeArrow(0xff4444);
+    const xArr = makeArrow(EDITOR_AXIS_X);
     xArr.group.rotation.z = -Math.PI / 2;   // Y→X 방향
     xArr.shaft.userData.gizmoAxis = 'x';
     xArr.head.userData.gizmoAxis  = 'x';
 
-    const zArr = makeArrow(0x4488ff);        // Y-up에서 Z는 수평축
+    const zArr = makeArrow(EDITOR_AXIS_Z);   // Y-up에서 Z는 수평축
     zArr.group.rotation.x = Math.PI / 2;    // Y→Z 방향
     zArr.shaft.userData.gizmoAxis = 'z';
     zArr.head.userData.gizmoAxis  = 'z';
@@ -128,7 +191,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
     // ─ 내부 상태 ─────────────────────────────────────────────────────────
     const s = {
       scene, camera, renderer, orbit, raycaster, groundPlane,
-      gizmo, gizmoMeshes,
+      grid, gizmo, gizmoMeshes,
       meshes:  [],
       lines:   [],
       gNodes:  [],
@@ -143,6 +206,72 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
 
     // ─ 헬퍼 함수 ─────────────────────────────────────────────────────────
     const canvas = renderer.domElement;
+
+    const disposeGrid = () => {
+      grid.children.forEach((child) => {
+        child.geometry?.dispose();
+        child.material?.dispose();
+      });
+      grid.clear();
+    };
+
+    const addGridSegments = (segments, color) => {
+      if (!segments.length) return;
+      const geometry = new THREE.BufferGeometry().setFromPoints(segments);
+      const material = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.78,
+        depthTest: true,
+        depthWrite: false,
+      });
+      const lines = new THREE.LineSegments(geometry, material);
+      grid.add(lines);
+    };
+
+    const pushSegment = (segments, x1, z1, x2, z2) => {
+      if (Math.abs(x1 - x2) < 1e-6 && Math.abs(z1 - z2) < 1e-6) return;
+      segments.push(new THREE.Vector3(x1, 0, z1), new THREE.Vector3(x2, 0, z2));
+    };
+
+    const rebuildGrid = (bounds = null) => {
+      disposeGrid();
+      const half = EDITOR_GRID_SIZE / 2;
+      const step = EDITOR_GRID_SIZE / EDITOR_GRID_DIVISIONS;
+      const majorSegments = [];
+      const minorSegments = [];
+      const blocked = bounds ? {
+        minX: Math.max(-half, bounds.min.x - EDITOR_GRID_BOUND_PADDING),
+        maxX: Math.min(half, bounds.max.x + EDITOR_GRID_BOUND_PADDING),
+        minZ: Math.max(-half, bounds.min.z - EDITOR_GRID_BOUND_PADDING),
+        maxZ: Math.min(half, bounds.max.z + EDITOR_GRID_BOUND_PADDING),
+      } : null;
+
+      for (let i = 0; i <= EDITOR_GRID_DIVISIONS; i += 1) {
+        const value = -half + i * step;
+        const segments = i % 10 === 0 ? majorSegments : minorSegments;
+
+        if (blocked && value >= blocked.minZ && value <= blocked.maxZ) {
+          pushSegment(segments, -half, value, blocked.minX, value);
+          pushSegment(segments, blocked.maxX, value, half, value);
+        } else {
+          pushSegment(segments, -half, value, half, value);
+        }
+
+        if (blocked && value >= blocked.minX && value <= blocked.maxX) {
+          pushSegment(segments, value, -half, value, blocked.minZ);
+          pushSegment(segments, value, blocked.maxZ, value, half);
+        } else {
+          pushSegment(segments, value, -half, value, half);
+        }
+      }
+
+      addGridSegments(minorSegments, EDITOR_GRID_MINOR);
+      addGridSegments(majorSegments, EDITOR_GRID_MAJOR);
+      grid.visible = showGridRef.current;
+    };
+
+    rebuildGrid();
 
     const toNDC = (e) => {
       const r = canvas.getBoundingClientRect();
@@ -476,15 +605,32 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       rafId = requestAnimationFrame(animate);
       applyWASD();
       if (!s.drag) orbit.update();
+      grid.visible = showGridRef.current;
       if (s.splatRenderer?.isLoaded()) {
+        renderer.setClearColor(EDITOR_VIEW_BACKGROUND, 1);
         s.splatRenderer.update();
         s.splatRenderer.render();
         const savedAutoClear = renderer.autoClear;
         const savedBackground = scene.background;
         renderer.autoClear = false;
         scene.background = null;
+
+        const savedMeshVisibility = s.meshes.map(mesh => mesh.visible);
+        const savedLineVisibility = s.lines.map(line => line.visible);
+        const savedGizmoVisible = gizmo.visible;
+        s.meshes.forEach(mesh => { mesh.visible = false; });
+        s.lines.forEach(line => { line.visible = false; });
+        gizmo.visible = false;
+        renderer.render(scene, camera);
+        s.meshes.forEach((mesh, index) => { mesh.visible = savedMeshVisibility[index]; });
+        s.lines.forEach((line, index) => { line.visible = savedLineVisibility[index]; });
+        gizmo.visible = savedGizmoVisible;
+
+        const savedGridVisible = grid.visible;
+        grid.visible = false;
         renderer.clearDepth();
         renderer.render(scene, camera);
+        grid.visible = savedGridVisible;
         scene.background = savedBackground;
         renderer.autoClear = savedAutoClear;
       } else {
@@ -538,18 +684,8 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       return true;
     };
 
-    // ─ 그래프 로드 (floor_id가 있을 때 API에서 가져옴) ───────────────────
-    if (floorId) {
-      fetch(`${API}/api/navigation/floors/${floorId}/graph`)
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          const graph = data?.graph ?? data;
-          if (!loadGraphData(graph)) loadGraphData(LOCAL_NAV_GRAPH);
-        })
-        .catch(() => loadGraphData(LOCAL_NAV_GRAPH));
-    } else {
-      loadGraphData(LOCAL_NAV_GRAPH);
-    }
+    // 새 편집은 등록된 노드 없이 빈 그래프에서 시작한다.
+    loadGraphData({ nodes: [], edges: [] });
 
     // ─ PLY 모델 ──────────────────────────────────────────────────────────
     const applyModelBounds = (geo) => {
@@ -563,6 +699,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       orbit.target.copy(center);
       s.groundPlane.constant = -floorY;
       grid.position.y = floorY;
+      rebuildGrid(box);
 
       const size = new THREE.Vector3();
       box.getSize(size);
@@ -580,29 +717,37 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       orbit.update();
     };
 
-    const loadPlyBounds = (plyUrl) => {
+    const loadPlyBounds = (plyUrl) => new Promise((resolve, reject) => {
       new PLYLoader().load(
         plyUrl,
         (geo) => {
           geo.rotateX(MODEL_ROTATION_X);
           applyModelBounds(geo);
           geo.dispose();
+          resolve();
         },
         undefined,
-        () => {},
+        reject,
       );
+    });
+
+    const loadModel = async (modelUrl) => {
+      const editorModelUrl = await pickEditorModelUrl(modelUrl || DEFAULT_MODEL_URL);
+      try {
+        await loadPlyBounds(editorModelUrl);
+      } catch (error) {
+        console.warn('Could not read PLY bounds in graph editor.', editorModelUrl, error);
+      }
+
+      try {
+        await s.splatRenderer.loadSplatModel(editorModelUrl, SPLAT_MODEL_TRANSFORM);
+      } catch (error) {
+        console.warn('Could not render model as 3DGS in graph editor. Falling back to PLY mesh.', editorModelUrl, error);
+        loadPly(editorModelUrl, editorModelUrl !== DEFAULT_MODEL_URL);
+      }
     };
 
-    const loadModel = (modelUrl) => {
-      loadPlyBounds(modelUrl);
-      s.splatRenderer.loadSplatModel(modelUrl, SPLAT_MODEL_TRANSFORM)
-        .catch((error) => {
-          console.warn('Could not render model as 3DGS in graph editor. Falling back to PLY mesh.', error);
-          loadPly(modelUrl);
-        });
-    };
-
-    const loadPly = (plyUrl) => {
+    const loadPly = (plyUrl, canFallbackToDefault = false) => {
       new PLYLoader().load(
         plyUrl,
         (geo) => {
@@ -615,7 +760,9 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
             opacity: 0.4,
             side: THREE.DoubleSide,
           });
-          scene.add(new THREE.Mesh(geo, mat));
+          const mesh = new THREE.Mesh(geo, mat);
+          s.modelMesh = mesh;
+          scene.add(mesh);
           geo.computeBoundingBox();
           const box    = geo.boundingBox;
           const center = new THREE.Vector3();
@@ -624,6 +771,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
           orbit.target.copy(center);
           s.groundPlane.constant = -floorY;
           grid.position.y        = floorY;
+          rebuildGrid(box);
 
           const size = new THREE.Vector3();
           box.getSize(size);
@@ -647,16 +795,28 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       );
     };
 
-    // floor_id가 있으면 API에서 splat_path 조회 후 PLY 로드
+    // 에디터는 로컬 model_editor_cut을 우선 사용하고, 없으면 원본/API/default로 fallback한다.
     if (floorId) {
       fetch(`${API}/api/floors/${floorId}`)
         .then(r => r.ok ? r.json() : null)
-        .then(floor => {
-          if (floor?.splat_path) loadModel(floor.splat_path);
+        .then(async (floor) => {
+          const modelUrl = await pickFirstExistingUrl([
+            ...getLocalFloorModelUrls(floor),
+            floor?.splat_path,
+            DEFAULT_MODEL_URL,
+          ]);
+          loadModel(modelUrl);
         })
-        .catch(() => {});
+        .catch(async () => {
+          const modelUrl = await pickFirstExistingUrl([
+            DEFAULT_MODEL_URL,
+          ]);
+          loadModel(modelUrl);
+        });
     } else {
-      loadModel('/Open3d.ply');
+      pickFirstExistingUrl([
+        DEFAULT_MODEL_URL,
+      ]).then(loadModel);
     }
 
     return () => {
@@ -666,6 +826,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       document.removeEventListener('keyup',   onKeyUp);
       orbit.dispose();
       s.splatRenderer?.dispose();
+      disposeGrid();
       renderer.dispose();
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
     };
@@ -730,31 +891,34 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
       edges: s.gEdges.map(({ id, from, to }) => ({ id, from, to })),
     };
 
-    if (floorId) {
-      setSaveStatus('saving');
-      try {
+    setSaveStatus('saving');
+    try {
+      if (floorId) {
         const res = await fetch(`${API}/api/navigation/floors/${floorId}/graph`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
         });
         if (!res.ok) throw new Error();
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus(''), 2000);
-      } catch {
-        setSaveStatus('error');
-        setTimeout(() => setSaveStatus(''), 3000);
       }
-    } else {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url; a.download = 'nav_graph.json'; a.click();
-      URL.revokeObjectURL(url);
+      setSaveStatus('saved');
+      onSaveGraph?.(data);
+      if (!onSaveGraph) setTimeout(() => setSaveStatus(''), 2000);
+    } catch {
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus(''), 3000);
     }
   };
 
   const selNode = nodes.find(n => n.id === selId);
+  const handleToggleGrid = () => {
+    setShowGrid((value) => {
+      const next = !value;
+      showGridRef.current = next;
+      if (threeRef.current?.grid) threeRef.current.grid.visible = next;
+      return next;
+    });
+  };
 
   // ─── 렌더 ────────────────────────────────────────────────────────────────
   return (
@@ -764,6 +928,13 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel }) {
         <span className="navgraph-header-title">
           {floorLabel ? `그래프 에디터 — ${floorLabel}` : '내비게이션 그래프 에디터'}
         </span>
+        <button
+          type="button"
+          className={`navgraph-header-toggle ${showGrid ? 'active' : ''}`}
+          onClick={handleToggleGrid}
+        >
+          좌표축 표시
+        </button>
         <div className="navgraph-header-tips">
           <span><span style={{ color: '#ff6666' }}>■</span> X축</span>
           <span><span style={{ color: '#4488ff' }}>■</span> Z축</span>

@@ -1,8 +1,8 @@
 import axios from 'axios';
 
-const BASE = 'https://port-0-backend-api-distribution-mp106n125ca57428.sel3.cloudtype.app';
+export const API_BASE = import.meta.env.VITE_API_BASE || '';
 
-const api = axios.create({ baseURL: BASE, timeout: 30000 });
+const api = axios.create({ baseURL: API_BASE, timeout: 30000 });
 
 // ─── Buildings ────────────────────────────────────────────────────────────────
 export const fetchBuildings = () =>

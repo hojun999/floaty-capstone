@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Viewer3D from './components/Viewer3D';
 import SearchBar from './components/SearchBar';
 import RoutePanel from './components/RoutePanel';
 import InfoCards from './components/InfoCards';
-import { fetchBuildings, fetchFloors, fetchNavGraph, fetchNavPath } from './utils/api';
+import { fetchBuildings, fetchFloor, fetchFloors, fetchNavGraph, fetchNavPath } from './utils/api';
 import NAV_GRAPH from './data/navGraph.json';
 
 const SEARCHABLE_NODE_TYPES = new Set(['start', 'destination', 'door']);
@@ -11,6 +11,21 @@ const SEARCHABLE_NODE_TYPES = new Set(['start', 'destination', 'door']);
 const getSearchableNodes = (nodes = []) => (
   nodes.filter(n => SEARCHABLE_NODE_TYPES.has(n.type))
 );
+
+const getLocalFloorModelUrls = (building, floor) => {
+  if (!building || !floor) return [];
+  /*
+  const floorName = floor.floor_name || `${floor.floor_number}층`;
+  */
+  const base = `/models/buildings/${building.id}/floors/${floor.id}`;
+  return [`${base}/model`, `${base}/model.ply`];
+};
+
+const isUsableModelResponse = (response) => {
+  if (!response.ok) return false;
+  const contentType = response.headers.get('content-type') || '';
+  return !contentType.toLowerCase().includes('text/html');
+};
 
 const findPathInGraph = (graph, fromId, toId) => {
   const nodes = graph?.nodes ?? [];
@@ -43,14 +58,21 @@ const findPathInGraph = (graph, fromId, toId) => {
   return [];
 };
 
-export default function App({ onEnterAdmin }) {
+export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigation = null }) {
   const [viewMode, setViewMode] = useState('3d');
+  const baseNavGraph = navGraph || NAV_GRAPH;
+  const appliedInitialNavigationRef = useRef(null);
 
   // 건물/층 선택
   const [buildings,          setBuildings]          = useState([]);
   const [floors,             setFloors]             = useState([]);
   const [selectedBuildingId, setSelectedBuildingId] = useState(null);
   const [selectedFloorId,    setSelectedFloorId]    = useState(null);
+  const [selectedFloor,      setSelectedFloor]      = useState(null);
+  const [selectedModelUrl,   setSelectedModelUrl]   = useState(undefined);
+  const [floorNavGraph,      setFloorNavGraph]      = useState(null);
+  const activeNavGraph = selectedFloorId ? (floorNavGraph || baseNavGraph) : baseNavGraph;
+  const selectedBuilding = buildings.find(b => b.id === selectedBuildingId) || null;
 
   // destination 타입 노드만 보관 (waypoint 등 제외)
   const [destinations, setDestinations] = useState([]);
@@ -71,6 +93,9 @@ export default function App({ onEnterAdmin }) {
   }, []);
 
   useEffect(() => {
+    setSelectedFloor(null);
+    setSelectedModelUrl(undefined);
+    setFloorNavGraph(null);
     if (!selectedBuildingId) { setFloors([]); setSelectedFloorId(null); return; }
     fetchFloors(selectedBuildingId)
       .then(data => { setFloors(data); setSelectedFloorId(null); })
@@ -78,26 +103,76 @@ export default function App({ onEnterAdmin }) {
   }, [selectedBuildingId]);
 
   useEffect(() => {
+    setSelectedFloor(null);
+    setFloorNavGraph(null);
     setSelectedStart(null);
     setSelectedDest(null);
     setRoutePath(null);
     setRouteError('');
 
     if (!selectedFloorId) {
-      setDestinations(getSearchableNodes(NAV_GRAPH.nodes));
+      setDestinations(getSearchableNodes(baseNavGraph.nodes));
       return;
     }
 
     setDestinations([]);
+    fetchFloor(selectedFloorId)
+      .then(setSelectedFloor)
+      .catch(() => setSelectedFloor(null));
+
     fetchNavGraph(selectedFloorId)
       .then(data => {
-        const nodes = data.graph?.nodes ?? data.nodes ?? [];
+        const graph = data.graph ?? data;
+        const nodes = graph.nodes ?? [];
         const dests = getSearchableNodes(nodes);
+        if (nodes.length) setFloorNavGraph(graph);
         // API에 노드가 없으면 목업으로 fallback
-        setDestinations(dests.length ? dests : getSearchableNodes(NAV_GRAPH.nodes));
+        setDestinations(dests.length ? dests : getSearchableNodes(baseNavGraph.nodes));
       })
-      .catch(() => setDestinations(getSearchableNodes(NAV_GRAPH.nodes)));
-  }, [selectedFloorId]);
+      .catch(() => setDestinations(getSearchableNodes(baseNavGraph.nodes)));
+  }, [selectedFloorId, baseNavGraph]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fallbackUrl = selectedFloor?.splat_path || selectedFloor?.ply_url || undefined;
+    const localUrls = getLocalFloorModelUrls(selectedBuilding, selectedFloor);
+
+    if (localUrls.length === 0) {
+      setSelectedModelUrl(fallbackUrl);
+      return () => { cancelled = true; };
+    }
+
+    (async () => {
+      for (const localUrl of localUrls) {
+        try {
+          const response = await fetch(localUrl, { method: 'HEAD' });
+          if (isUsableModelResponse(response)) {
+            if (!cancelled) setSelectedModelUrl(localUrl);
+            return;
+          }
+        } catch {}
+      }
+      if (!cancelled) setSelectedModelUrl(fallbackUrl);
+    })();
+
+    return () => { cancelled = true; };
+  }, [selectedBuilding, selectedFloor]);
+
+  useEffect(() => {
+    if (!initialNavigation?.startNodeId) return;
+    if (appliedInitialNavigationRef.current === initialNavigation.seq) return;
+
+    const startNode = activeNavGraph.nodes?.find(node => node.id === initialNavigation.startNodeId);
+    if (!startNode) return;
+
+    appliedInitialNavigationRef.current = initialNavigation.seq;
+    setViewMode('3d');
+    setSelectedStart(startNode);
+    setSelectedDest(null);
+    setRoutePath(null);
+    setRouteError('');
+    setNavCommand({ nodeId: startNode.id, seq: initialNavigation.seq });
+  }, [activeNavGraph, initialNavigation]);
 
   // 출발지·목적지 모두 선택되면 경로 조회
   useEffect(() => {
@@ -108,7 +183,7 @@ export default function App({ onEnterAdmin }) {
     }
 
     if (!selectedFloorId) {
-      const path = findPathInGraph(NAV_GRAPH, selectedStart.id, selectedDest.id);
+      const path = findPathInGraph(activeNavGraph, selectedStart.id, selectedDest.id);
       if (path.length) { setRoutePath(path); setRouteError(''); }
       else { setRoutePath(null); setRouteError('경로를 찾을 수 없습니다.'); }
       return;
@@ -121,7 +196,7 @@ export default function App({ onEnterAdmin }) {
         else { setRoutePath(null); setRouteError('경로를 찾을 수 없습니다.'); }
       })
       .catch(() => setRouteError('경로 조회에 실패했습니다.'));
-  }, [selectedFloorId, selectedStart, selectedDest]);
+  }, [selectedFloorId, selectedStart, selectedDest, activeNavGraph]);
 
   // ─── 핸들러 ───────────────────────────────────────────────────────────────
 
@@ -157,7 +232,6 @@ export default function App({ onEnterAdmin }) {
     setSelectedFloorId(Number(e.target.value) || null);
   };
 
-  // RoutePanel은 문자열 배열을 받으므로 경로 노드 이름으로 변환
   const routeSteps = routePath?.map(n => n.name).filter(Boolean) ?? null;
 
   // ─── 렌더 ─────────────────────────────────────────────────────────────────
@@ -248,10 +322,13 @@ export default function App({ onEnterAdmin }) {
         <div className="viewer-grid single">
           {viewMode === '3d' && (
             <Viewer3D
+              key={`${selectedFloorId || 'local'}:${selectedModelUrl || 'default'}`}
               selectedDest={selectedDest}
               routePoints={routePath}
-              navGraph={NAV_GRAPH}
+              navGraph={activeNavGraph}
               navCommand={navCommand}
+              initialViewMode={initialNavigation?.startNodeId ? 'pedestrian' : 'orbit'}
+              modelUrl={selectedModelUrl}
             />
           )}
         </div>

@@ -1,0 +1,408 @@
+{
+  "buildings": [
+    {
+      "id": 1,
+      "name": "세종관",
+      "address": "서울특별시 광진구 군자동",
+      "description": "세종대학교 세종관",
+      "created_at": "2026-06-04T00:07:29.473Z"
+    }
+  ],
+  "floors": [
+    {
+      "id": 1,
+      "building_id": 1,
+      "floor_number": 1,
+      "floor_name": "1층",
+      "floor_plan_path": null,
+      "splat_path": "/models/buildings/1/floors/1/model",
+      "status": "queued",
+      "created_at": "2026-06-04T00:07:35.126Z"
+    },
+    {
+      "id": 2,
+      "building_id": 1,
+      "floor_number": 2,
+      "floor_name": "2층",
+      "floor_plan_path": null,
+      "splat_path": "/models/buildings/1/floors/2/model",
+      "status": "completed",
+      "created_at": "2026-06-04T00:07:40.114Z"
+    },
+    {
+      "id": 3,
+      "building_id": 1,
+      "floor_number": 3,
+      "floor_name": "3층",
+      "floor_plan_path": null,
+      "splat_path": "/models/buildings/1/floors/3/model",
+      "status": "queued",
+      "created_at": "2026-06-04T02:04:09.147Z"
+    }
+  ],
+  "graphs": {
+    "1": {
+      "nodes": [],
+      "edges": []
+    },
+    "2": {
+      "nodes": [
+        {
+          "id": "node_6",
+          "name": "복도",
+          "type": "waypoint",
+          "x": 3.5123,
+          "y": -1.027,
+          "z": -24.5904
+        },
+        {
+          "id": "node_7",
+          "name": "복도",
+          "type": "waypoint",
+          "x": 3.4771,
+          "y": -1.027,
+          "z": -19.3106
+        },
+        {
+          "id": "node_8",
+          "name": "강의실 201호",
+          "type": "destination",
+          "x": 4.6395,
+          "y": -1.027,
+          "z": -19.4195
+        },
+        {
+          "id": "node_9",
+          "name": "복도",
+          "type": "waypoint",
+          "x": 3.7288,
+          "y": -1.027,
+          "z": -13.4404
+        },
+        {
+          "id": "node_10",
+          "name": "강의실 202호",
+          "type": "destination",
+          "x": 4.7234,
+          "y": -1.027,
+          "z": -13.5981
+        },
+        {
+          "id": "node_11",
+          "name": "복도",
+          "type": "waypoint",
+          "x": 3.7995,
+          "y": -1.027,
+          "z": -6.7481
+        },
+        {
+          "id": "node_12",
+          "name": "연구실 203호",
+          "type": "destination",
+          "x": 4.7781,
+          "y": -1.027,
+          "z": -6.7919
+        },
+        {
+          "id": "node_13",
+          "name": "복도",
+          "type": "waypoint",
+          "x": 3.9042,
+          "y": -1.027,
+          "z": -5.5255
+        },
+        {
+          "id": "node_14",
+          "name": "연구실 204호",
+          "type": "destination",
+          "x": 4.8797,
+          "y": -1.027,
+          "z": -5.6638
+        },
+        {
+          "id": "node_15",
+          "name": "2층 계단",
+          "type": "start",
+          "x": -0.8305,
+          "y": -1.027,
+          "z": -7.353
+        },
+        {
+          "id": "node_16",
+          "name": "3층 계단",
+          "type": "destination",
+          "x": -2.1148,
+          "y": -1.027,
+          "z": -6.0366
+        },
+        {
+          "id": "node_17",
+          "name": "복도",
+          "type": "waypoint",
+          "x": -1.1042,
+          "y": -1.027,
+          "z": -1.6766
+        },
+        {
+          "id": "node_18",
+          "name": "상담실",
+          "type": "destination",
+          "x": 0.1032,
+          "y": -1.027,
+          "z": -1.6482
+        },
+        {
+          "id": "node_19",
+          "name": "복도",
+          "type": "waypoint",
+          "x": -0.7978,
+          "y": -1.027,
+          "z": 2.1331
+        },
+        {
+          "id": "node_20",
+          "name": "복도",
+          "type": "waypoint",
+          "x": -3.3447,
+          "y": -1.027,
+          "z": 2.3043
+        },
+        {
+          "id": "node_22",
+          "name": "강의실 205호",
+          "type": "destination",
+          "x": -2.2331,
+          "y": -1.027,
+          "z": 9.5711
+        },
+        {
+          "id": "node_23",
+          "name": "복도",
+          "type": "waypoint",
+          "x": -3.0093,
+          "y": -1.027,
+          "z": 14.4975
+        },
+        {
+          "id": "node_24",
+          "name": "강의실 206호",
+          "type": "destination",
+          "x": -1.885,
+          "y": -1.027,
+          "z": 14.5484
+        },
+        {
+          "id": "node_25",
+          "name": "복도",
+          "type": "waypoint",
+          "x": -2.8159,
+          "y": -1.027,
+          "z": 19.6089
+        },
+        {
+          "id": "node_26",
+          "name": "강의실 207호",
+          "type": "destination",
+          "x": -1.6555,
+          "y": -1.027,
+          "z": 19.6555
+        },
+        {
+          "id": "node_27",
+          "name": "복도",
+          "type": "waypoint",
+          "x": -2.7216,
+          "y": -1.027,
+          "z": 25.3598
+        },
+        {
+          "id": "node_28",
+          "name": "강의실 208호",
+          "type": "destination",
+          "x": -1.4936,
+          "y": -1.027,
+          "z": 25.2906
+        },
+        {
+          "id": "node_29",
+          "name": "복도",
+          "type": "waypoint",
+          "x": -2.4805,
+          "y": -1.027,
+          "z": 31.166
+        },
+        {
+          "id": "node_30",
+          "name": "강의실 209호",
+          "type": "destination",
+          "x": -1.3734,
+          "y": -1.027,
+          "z": 31.2804
+        },
+        {
+          "id": "node_32",
+          "name": "복도",
+          "type": "waypoint",
+          "x": -3.2188,
+          "y": -1.027,
+          "z": 9.6148
+        },
+        {
+          "id": "node_33",
+          "name": "복도",
+          "type": "waypoint",
+          "x": -1.0347,
+          "y": -1.027,
+          "z": -5.1663
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge_1",
+          "from": "node_29",
+          "to": "node_30"
+        },
+        {
+          "id": "edge_2",
+          "from": "node_29",
+          "to": "node_27"
+        },
+        {
+          "id": "edge_3",
+          "from": "node_27",
+          "to": "node_28"
+        },
+        {
+          "id": "edge_4",
+          "from": "node_27",
+          "to": "node_25"
+        },
+        {
+          "id": "edge_5",
+          "from": "node_25",
+          "to": "node_26"
+        },
+        {
+          "id": "edge_6",
+          "from": "node_25",
+          "to": "node_23"
+        },
+        {
+          "id": "edge_7",
+          "from": "node_23",
+          "to": "node_24"
+        },
+        {
+          "id": "edge_10",
+          "from": "node_32",
+          "to": "node_23"
+        },
+        {
+          "id": "edge_11",
+          "from": "node_32",
+          "to": "node_22"
+        },
+        {
+          "id": "edge_12",
+          "from": "node_32",
+          "to": "node_20"
+        },
+        {
+          "id": "edge_13",
+          "from": "node_20",
+          "to": "node_19"
+        },
+        {
+          "id": "edge_14",
+          "from": "node_19",
+          "to": "node_17"
+        },
+        {
+          "id": "edge_15",
+          "from": "node_17",
+          "to": "node_18"
+        },
+        {
+          "id": "edge_16",
+          "from": "node_33",
+          "to": "node_17"
+        },
+        {
+          "id": "edge_17",
+          "from": "node_33",
+          "to": "node_15"
+        },
+        {
+          "id": "edge_18",
+          "from": "node_33",
+          "to": "node_16"
+        },
+        {
+          "id": "edge_19",
+          "from": "node_15",
+          "to": "node_16"
+        },
+        {
+          "id": "edge_20",
+          "from": "node_15",
+          "to": "node_11"
+        },
+        {
+          "id": "edge_21",
+          "from": "node_33",
+          "to": "node_13"
+        },
+        {
+          "id": "edge_22",
+          "from": "node_11",
+          "to": "node_12"
+        },
+        {
+          "id": "edge_23",
+          "from": "node_13",
+          "to": "node_14"
+        },
+        {
+          "id": "edge_24",
+          "from": "node_13",
+          "to": "node_11"
+        },
+        {
+          "id": "edge_25",
+          "from": "node_9",
+          "to": "node_11"
+        },
+        {
+          "id": "edge_26",
+          "from": "node_9",
+          "to": "node_10"
+        },
+        {
+          "id": "edge_27",
+          "from": "node_9",
+          "to": "node_7"
+        },
+        {
+          "id": "edge_28",
+          "from": "node_7",
+          "to": "node_8"
+        },
+        {
+          "id": "edge_29",
+          "from": "node_7",
+          "to": "node_6"
+        }
+      ]
+    },
+    "3": {
+      "nodes": [],
+      "edges": []
+    }
+  },
+  "jobs": [],
+  "nextIds": {
+    "building": 2,
+    "floor": 4,
+    "job": 1
+  }
+}

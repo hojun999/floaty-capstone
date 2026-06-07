@@ -1,7 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import '../styles/admin.css';
+import {
+  createBuilding,
+  createFloor,
+  deleteBuilding,
+  deleteFloor,
+  fetchBuildings,
+  fetchFloors,
+  updateBuilding,
+  updateFloor,
+} from '../utils/api';
 
-const API = 'https://port-0-backend-api-distribution-mp106n125ca57428.sel3.cloudtype.app';
+const DEFAULT_COMPLETED_SPLAT_PATH = '/Open3d.ply';
 
 // ─── 아이콘 컴포넌트 (SVG) ───────────────────────────────────────────
 const Icon = ({ name, size = 18 }) => {
@@ -117,19 +127,36 @@ const DUMMY_MODELS = [
   { id: 4, name: '도서관 로비', status: 'error', floor: 1, date: '2025-03-17', duration: null, size: '1.2GB', linked: false },
 ];
 
-const STATUS_LABEL = { done: '완료', processing: '처리중', error: '오류' };
-const STATUS_CLASS = { done: 'status-done', processing: 'status-processing', error: 'status-error' };
+const STATUS_LABEL = {
+  done: '완료',
+  processing: '처리중',
+  error: '오류',
+  queued: '대기중',
+  completed: '완료',
+  failed: '실패',
+};
+const STATUS_CLASS = {
+  done: 'status-done',
+  processing: 'status-processing',
+  error: 'status-error',
+  queued: 'status-processing',
+  completed: 'status-done',
+  failed: 'status-error',
+};
 
 // ─── 목업 데이터 (API 연결 전 fallback) ──────────────────────────────
 // API 필드명과 동일하게 유지: building_id, floor_number, floor_name
-const DUMMY_BUILDINGS = [
+const DUMMY_BUILDINGS = [];
+const DUMMY_FLOORS = [];
+
+const UNUSED_DUMMY_BUILDINGS = [
   { id: 1, name: '공학관',   address: '서울시 광진구 능동로 120', description: '공과대학 메인 건물' },
   { id: 2, name: '도서관',   address: '서울시 광진구 능동로 120', description: '중앙도서관' },
   { id: 3, name: '학생회관', address: '서울시 광진구 능동로 120', description: '학생 편의시설' },
   { id: 4, name: '본관',     address: '서울시 광진구 능동로 120', description: '행정 및 강의동' },
 ];
 
-const DUMMY_FLOORS = [
+const UNUSED_DUMMY_FLOORS = [
   { id:  1, building_id: 1, floor_number: -1, floor_name: 'B1 (지하 1층)' },
   { id:  2, building_id: 1, floor_number:  1, floor_name: '1층 (로비·실험실)' },
   { id:  3, building_id: 1, floor_number:  2, floor_name: '2층 (강의실)' },
@@ -166,13 +193,6 @@ function Dashboard({ onNavigate, onOpenEditor }) {
           <p className="admin-page-sub">전체 현황을 확인하세요</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {onOpenEditor && (
-            <button className="admin-btn admin-btn-secondary"
-              onClick={() => onOpenEditor(null, '')}>
-              <Icon name="network" size={16} />
-              그래프 에디터 테스트
-            </button>
-          )}
           <button className="admin-btn admin-btn-primary" onClick={() => onNavigate('upload')}>
             <Icon name="plus" size={16} />
             새 영상 업로드
@@ -203,25 +223,6 @@ function Dashboard({ onNavigate, onOpenEditor }) {
         <ModelTable models={DUMMY_MODELS.slice(0, 3)} onNavigate={onNavigate} />
       </div>
 
-      {/* 처리중 진행상황 */}
-      <div className="admin-section">
-        <h3 className="admin-section-title" style={{ marginBottom: 12 }}>처리 중인 작업</h3>
-        <div className="admin-processing-card">
-          <div className="admin-processing-info">
-            <Icon name="cube" size={20} />
-            <div>
-              <div className="admin-processing-name">공학관 3층</div>
-              <div className="admin-processing-detail">3D Gaussian Splatting 변환 중 · 약 23분 남음</div>
-            </div>
-          </div>
-          <div className="admin-progress-wrap">
-            <div className="admin-progress-bar">
-              <div className="admin-progress-fill" style={{ width: '62%' }} />
-            </div>
-            <span className="admin-progress-pct">62%</span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -282,7 +283,7 @@ function ModelTable({ models, onNavigate }) {
 // ─── 업로드 위자드 ────────────────────────────────────────────────────
 const STEPS = ['기본 정보', '영상 선택', '처리 설정', '검토 및 시작'];
 
-function UploadWizard() {
+function UploadWizard({ onCompleted }) {
   // ── 상태 (문서 명세: VideoUploadPage attributes) ──────────────────
   const [step, setStep] = useState(1);                          // currentStep: int (1~4)
   const [file, setFile] = useState(null);                       // selectedFile: File
@@ -299,19 +300,18 @@ function UploadWizard() {
   const [jobStatus, setJobStatus] = useState(''); // queued|processing|completed|failed
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
-  const pollRef = useRef(null);
 
   const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 
   // ── 메서드 (문서 명세: VideoUploadPage methods) ───────────────────
 
   useEffect(() => {
-    fetch(`${API}/api/buildings`).then(r => r.json()).then(setApiBuildingList).catch(() => {});
+    fetchBuildings().then(setApiBuildingList).catch(() => {});
   }, []);
 
   useEffect(() => {
     if (!selectedBuildingId) { setApiFloorList([]); return; }
-    fetch(`${API}/api/floors?building_id=${selectedBuildingId}`).then(r => r.json()).then(setApiFloorList).catch(() => {});
+    fetchFloors(selectedBuildingId).then(setApiFloorList).catch(() => {});
   }, [selectedBuildingId]);
 
   /** 파일 형식·크기 검증 (기본 흐름 5) */
@@ -343,45 +343,34 @@ function UploadWizard() {
   const submitUpload = async () => {
     if (!file || !selectedBuildingId || !selectedFloorId) return;
     setStarted(true);
-    setJobStatus('uploading');
+    setJobStatus('processing');
     setProgress(0);
 
-    const formData = new FormData();
-    formData.append('building_name', selectedBuilding?.name || '');
-    formData.append('floor_number',  String(selectedFloor?.floor_number ?? 1));
-    if (selectedFloor?.floor_name) formData.append('floor_name', selectedFloor.floor_name);
-    formData.append('settings',      JSON.stringify({ quality: processingQuality, iterations }));
-    formData.append('video_file',    file);
+    const completedFloor = {
+      ...selectedFloor,
+      status: 'completed',
+      splat_path: selectedFloor?.splat_path || DEFAULT_COMPLETED_SPLAT_PATH,
+    };
+    setApiFloorList((items) => items.map((floor) => (
+      floor.id === selectedFloorId ? { ...floor, ...completedFloor } : floor
+    )));
+    setJobId(`local-${selectedFloorId}`);
+    onCompleted?.({
+      buildingId: selectedBuildingId,
+      floorId: selectedFloorId,
+      floor: completedFloor,
+    });
 
     try {
-      const res = await fetch(`${API}/api/processing/jobs`, { method: 'POST', body: formData });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      setJobId(data.id);
-      setJobStatus(data.status || 'queued');
-      setProgress(10);
-
-      // 5초마다 상태 폴링
-      pollRef.current = setInterval(async () => {
-        try {
-          const sr  = await fetch(`${API}/api/processing/jobs/${data.id}/status`);
-          const sd  = await sr.json();
-          setJobStatus(sd.status);
-          if (sd.status === 'processing') setProgress(p => Math.min(p + 5, 90));
-          if (sd.status === 'completed')  { setProgress(100); clearInterval(pollRef.current); }
-          if (sd.status === 'failed')     {
-            showErrorMessage(sd.error_message || '변환 실패');
-            clearInterval(pollRef.current);
-          }
-        } catch {}
-      }, 5000);
+      await updateFloor(selectedFloorId, {
+        status: 'completed',
+        splat_path: completedFloor.splat_path,
+        floor_name: selectedFloor?.floor_name || spaceName.trim() || null,
+      });
     } catch (err) {
-      setStarted(false);
-      showErrorMessage(`업로드 실패: ${err.message || '서버 오류'}`);
+      showErrorMessage('서버 저장은 실패했지만, 현재 화면에서는 완료된 층으로 처리했습니다.');
     }
   };
-
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   // ── 이벤트 핸들러 ────────────────────────────────────────────────
   const handleDrop = (e) => {
@@ -611,7 +600,7 @@ function UploadWizard() {
                 </div>
                 <div className="admin-review-estimate">
                   <Icon name="alert" size={16} />
-                  <span>예상 처리 시간: <strong>{qualityOptions.find((q) => q.key === processingQuality)?.sub.split('·')[1]?.trim()}</strong> · 처리 중에도 앱을 닫아도 됩니다.</span>
+                  <span>예상 처리 시간: <strong>{qualityOptions.find((q) => q.key === processingQuality)?.sub.split('·')[1]?.trim()}</strong> · 처리 중에 웹을 종료해도 됩니다.</span>
                 </div>
                 <button className="admin-btn admin-btn-primary admin-btn-lg" onClick={submitUpload}>
                   3D 변환 시작
@@ -860,9 +849,7 @@ function BuildingManager({ onOpenFloors }) {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/buildings`);
-      if (!res.ok) throw new Error();
-      setBuildings(await res.json());
+      setBuildings(await fetchBuildings());
     } catch {
       setBuildings(DUMMY_BUILDINGS);
     }
@@ -877,10 +864,8 @@ function BuildingManager({ onOpenFloors }) {
     if (!form.name.trim()) { setError('건물 이름을 입력하세요.'); return; }
     const body = { name: form.name.trim(), address: form.address || null, description: form.description || null };
     try {
-      const url    = editId ? `${API}/api/buildings/${editId}` : `${API}/api/buildings`;
-      const method = editId ? 'PATCH' : 'POST';
-      const res    = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!res.ok) throw new Error();
+      if (editId) await updateBuilding(editId, body);
+      else await createBuilding(body);
       setShowForm(false); setError(''); load();
     } catch { setError('저장에 실패했습니다.'); }
   };
@@ -888,7 +873,7 @@ function BuildingManager({ onOpenFloors }) {
   const handleDelete = async (id, name) => {
     if (!window.confirm(`"${name}" 건물을 삭제하시겠습니까?\n모든 층과 그래프 데이터가 삭제됩니다.`)) return;
     try {
-      await fetch(`${API}/api/buildings/${id}`, { method: 'DELETE' });
+      await deleteBuilding(id);
       load();
     } catch { setError('삭제에 실패했습니다.'); }
   };
@@ -975,7 +960,7 @@ function BuildingManager({ onOpenFloors }) {
 }
 
 // ─── 층 관리 ──────────────────────────────────────────────────────────
-function FloorManager({ onOpenEditor, initialBuildingId }) {
+function FloorManager({ onOpenEditor, initialBuildingId, floorOverrides = {} }) {
   const [buildings,    setBuildings]    = useState([]);
   const [selectedBId,  setSelectedBId]  = useState(initialBuildingId || null);
   const [floors,       setFloors]       = useState([]);
@@ -986,8 +971,7 @@ function FloorManager({ onOpenEditor, initialBuildingId }) {
   const [form,         setForm]         = useState({ floor_number: '', floor_name: '' });
 
   useEffect(() => {
-    fetch(`${API}/api/buildings`)
-      .then(r => r.json())
+    fetchBuildings()
       .then(setBuildings)
       .catch(() => setBuildings(DUMMY_BUILDINGS));
   }, []);
@@ -996,16 +980,17 @@ function FloorManager({ onOpenEditor, initialBuildingId }) {
     if (!bid) { setFloors([]); return; }
     setLoadingF(true);
     try {
-      const res = await fetch(`${API}/api/floors?building_id=${bid}`);
-      if (!res.ok) throw new Error();
-      setFloors(await res.json());
+      const loadedFloors = await fetchFloors(bid);
+      setFloors(loadedFloors.map((floor) => ({ ...floor, ...(floorOverrides[floor.id] || {}) })));
     } catch {
-      setFloors(DUMMY_FLOORS.filter(f => f.building_id === bid));
+      setFloors(DUMMY_FLOORS
+        .filter(f => f.building_id === bid)
+        .map((floor) => ({ ...floor, ...(floorOverrides[floor.id] || {}) })));
     }
     finally { setLoadingF(false); }
   };
 
-  useEffect(() => { loadFloors(selectedBId); }, [selectedBId]);
+  useEffect(() => { loadFloors(selectedBId); }, [selectedBId, floorOverrides]);
 
   const openAdd = () => { setEditId(null); setForm({ floor_number: '', floor_name: '' }); setShowForm(true); };
   const openEdit = (f) => { setEditId(f.id); setForm({ floor_number: f.floor_number, floor_name: f.floor_name || '' }); setShowForm(true); };
@@ -1014,14 +999,12 @@ function FloorManager({ onOpenEditor, initialBuildingId }) {
     if (!editId && !form.floor_number) { setError('층 번호를 입력하세요.'); return; }
     try {
       if (editId) {
-        await fetch(`${API}/api/floors/${editId}`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ floor_name: form.floor_name || null }),
-        });
+        await updateFloor(editId, { floor_name: form.floor_name || null });
       } else {
-        await fetch(`${API}/api/floors`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ building_id: selectedBId, floor_number: Number(form.floor_number), floor_name: form.floor_name || null }),
+        await createFloor({
+          building_id: selectedBId,
+          floor_number: Number(form.floor_number),
+          floor_name: form.floor_name || null,
         });
       }
       setShowForm(false); setError(''); loadFloors(selectedBId);
@@ -1030,8 +1013,12 @@ function FloorManager({ onOpenEditor, initialBuildingId }) {
 
   const handleDelete = async (id, label) => {
     if (!window.confirm(`"${label}" 층을 삭제하시겠습니까?`)) return;
-    await fetch(`${API}/api/floors/${id}`, { method: 'DELETE' });
-    loadFloors(selectedBId);
+    try {
+      await deleteFloor(id);
+      loadFloors(selectedBId);
+    } catch {
+      setError('삭제에 실패했습니다.');
+    }
   };
 
   const selectedBuilding = buildings.find(b => b.id === selectedBId);
@@ -1092,7 +1079,7 @@ function FloorManager({ onOpenEditor, initialBuildingId }) {
         : selectedBId && (
           <div className="admin-table-wrap">
             <table className="admin-table">
-              <thead><tr><th>층 번호</th><th>층 이름</th><th>작업</th></tr></thead>
+              <thead><tr><th>층 번호</th><th>층 이름</th><th>상태</th><th>3DGS</th><th>작업</th></tr></thead>
               <tbody>
                 {floors.map(f => {
                   const floorLabel = `${selectedBuilding?.name || ''} ${f.floor_name || f.floor_number + '층'}`;
@@ -1101,8 +1088,15 @@ function FloorManager({ onOpenEditor, initialBuildingId }) {
                       <td><span className="admin-floor-badge">{f.floor_number}F</span></td>
                       <td>{f.floor_name || '—'}</td>
                       <td>
+                        <span className={`admin-status-badge ${STATUS_CLASS[f.status] || ''}`}>
+                          {STATUS_LABEL[f.status] || f.status || '미정'}
+                        </span>
+                      </td>
+                      <td className="admin-table-muted">{f.splat_path ? '완료' : '없음'}</td>
+                      <td>
                         <div className="admin-table-actions">
                           <button className="admin-btn admin-btn-sm admin-btn-outline"
+                            title="그래프 편집"
                             onClick={() => onOpenEditor(f.id, floorLabel)}>
                             <Icon name="network" size={13} /> 그래프 편집
                           </button>
@@ -1228,18 +1222,31 @@ function SettingsPage() {
 export default function AdminPage({ onExit, onOpenEditor }) {
   const [page,              setPage]              = useState('dashboard');
   const [initialBuildingId, setInitialBuildingId] = useState(null);
+  const [floorCompletionOverrides, setFloorCompletionOverrides] = useState({});
 
   const handleOpenFloors = (building) => {
     setInitialBuildingId(building.id);
     setPage('floors');
   };
 
+  const handleUploadCompleted = ({ buildingId, floorId, floor }) => {
+    setFloorCompletionOverrides((overrides) => ({
+      ...overrides,
+      [floorId]: {
+        ...floor,
+        status: 'completed',
+        splat_path: floor?.splat_path || DEFAULT_COMPLETED_SPLAT_PATH,
+      },
+    }));
+    setInitialBuildingId(buildingId);
+  };
+
   const renderPage = () => {
     switch (page) {
       case 'dashboard': return <Dashboard onNavigate={setPage} onOpenEditor={onOpenEditor} />;
       case 'buildings': return <BuildingManager onOpenFloors={handleOpenFloors} />;
-      case 'floors':    return <FloorManager onOpenEditor={onOpenEditor} initialBuildingId={initialBuildingId} />;
-      case 'upload':    return <UploadWizard />;
+      case 'floors':    return <FloorManager onOpenEditor={onOpenEditor} initialBuildingId={initialBuildingId} floorOverrides={floorCompletionOverrides} />;
+      case 'upload':    return <UploadWizard onCompleted={handleUploadCompleted} />;
       case 'models':    return <ModelManager onNavigate={setPage} />;
       // case 'floorplan': return <FloorPlanLinker />;
       case 'settings':  return <SettingsPage />;

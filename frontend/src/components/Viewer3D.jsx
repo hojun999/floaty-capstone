@@ -15,15 +15,28 @@ import { SPLAT_MODEL_TRANSFORM } from '../renderers/modelTransforms.js';
 import { createSplatRenderer } from '../renderers/SplatModelRenderer.js';
 
 const DEFAULT_MODEL_URL = '/Open3d.ply';
-const NAV_CORRIDOR_RADIUS = 0.35;
+const NAV_CORRIDOR_RADIUS = 0.8;
 const HUMAN_EYE_HEIGHT_RATIO = 0.025;
 const MIN_HUMAN_EYE_HEIGHT = 0.08;
 const MAX_HUMAN_EYE_HEIGHT = 0.18;
 const ROUTE_ARROW_CAMERA_FORWARD_OFFSET = 0.1656;
 const ROUTE_ARROW_FLOOR_LIFT = 0.069575;
-const LABELED_NODE_TYPES = new Set(['start', 'door']);
+const LABELED_NODE_TYPES = new Set(['start', 'destination', 'door']);
+const ORBIT_ARROW_LOOK_AHEAD = 0.45;
 
-export default function Viewer3D({ selectedDest, routePoints, navGraph, navCommand }) {
+const withDefaultModelFallback = (url) => {
+  const primary = url || DEFAULT_MODEL_URL;
+  return primary === DEFAULT_MODEL_URL ? [DEFAULT_MODEL_URL] : [primary, DEFAULT_MODEL_URL];
+};
+
+export default function Viewer3D({
+  selectedDest,
+  routePoints,
+  navGraph,
+  navCommand,
+  initialViewMode = 'orbit',
+  modelUrl = DEFAULT_MODEL_URL,
+}) {
   const containerRef    = useRef(null);
   const threeRef        = useRef(null); // { scene, plyOffset, renderer }
   const cameraRef       = useRef(null);
@@ -37,7 +50,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
 
   // 거리뷰 이동 상태 (React state 아닌 ref — 매 프레임마다 쓰임)
   const routePointsRef = useRef(routePoints);
-  const viewModeRef = useRef('orbit');
+  const viewModeRef = useRef(initialViewMode);
   const renderModeRef = useRef('splat');
   const orbitViewRef = useRef(null);
   const pedestrianControlsRef = useRef(null);
@@ -57,7 +70,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
   });
 
   const [status, setStatus]   = useState('loading');
-  const [viewMode, setViewMode] = useState('orbit');
+  const [viewMode, setViewMode] = useState(initialViewMode);
   const [renderMode] = useState('splat');
   const [svNodeId, setSvNodeId] = useState(null); // 현재 노드 (화살표 재렌더 트리거)
   const [nodeLabels, setNodeLabels] = useState([]);
@@ -115,11 +128,18 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
 
     if (renderMode === 'splat') {
       setStatus('loading');
-      splatRenderer.loadSplatModel(DEFAULT_MODEL_URL, SPLAT_MODEL_TRANSFORM)
+      const [primaryUrl, fallbackUrl] = withDefaultModelFallback(modelUrl);
+      splatRenderer.loadSplatModel(primaryUrl, SPLAT_MODEL_TRANSFORM)
         .then(() => setStatus('ready'))
         .catch((error) => {
+          if (fallbackUrl) {
+            console.warn('Failed to load selected 3DGS model. Falling back to default model.', error);
+            return splatRenderer.loadSplatModel(fallbackUrl, SPLAT_MODEL_TRANSFORM)
+              .then(() => setStatus('ready'));
+          }
           console.error('Failed to load 3DGS splat model.', error);
           setStatus('error');
+          return null;
         });
       return;
     }
@@ -351,16 +371,23 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     splatRendererRef.current = createSplatRenderer({ renderer, camera, scene });
     if (renderModeRef.current === 'splat') {
       setStatus('loading');
-      splatRendererRef.current.loadSplatModel(DEFAULT_MODEL_URL, SPLAT_MODEL_TRANSFORM)
+      const [primaryUrl, fallbackUrl] = withDefaultModelFallback(modelUrl);
+      splatRendererRef.current.loadSplatModel(primaryUrl, SPLAT_MODEL_TRANSFORM)
         .then(() => setStatus('ready'))
         .catch((error) => {
+          if (fallbackUrl) {
+            console.warn('Failed to load selected 3DGS model. Falling back to default model.', error);
+            return splatRendererRef.current.loadSplatModel(fallbackUrl, SPLAT_MODEL_TRANSFORM)
+              .then(() => setStatus('ready'));
+          }
           console.error('Failed to load 3DGS splat model.', error);
           setStatus('error');
+          return null;
         });
     }
 
     new PLYLoader().load(
-      DEFAULT_MODEL_URL,
+      modelUrl,
       (geometry) => {
         geometry.computeVertexNormals();
         geometry.computeBoundingBox();
@@ -542,7 +569,7 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
     sv.progress = 0;
     sv.transitioning = true;
     controls.enabled = false;
-  }, [navCommand]);
+  }, [navCommand, status]);
 
   // ─── navGraph 시각화 ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -762,15 +789,29 @@ export default function Viewer3D({ selectedDest, routePoints, navGraph, navComma
       const eyeH = svRef.current.eyeHeight;
 
       // 현재 시선 방향 유지 (크기 = eyeH 고정)
-      const offset = new THREE.Vector3()
-        .subVectors(camera.position, controls.target)
-        .normalize()
-        .multiplyScalar(eyeH);
+      const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
+      const target = newTarget.clone();
+
+      if (viewModeRef.current === 'pedestrian') {
+        if (offset.lengthSq() < 1e-8) offset.set(0, eyeH, eyeH);
+        offset.normalize().multiplyScalar(eyeH);
+      } else {
+        const moveDir = new THREE.Vector3().subVectors(newTarget, controls.target);
+        moveDir.y = 0;
+        if (moveDir.lengthSq() < 1e-8) camera.getWorldDirection(moveDir);
+        moveDir.y = 0;
+        if (moveDir.lengthSq() > 1e-8) {
+          moveDir.normalize();
+          target.addScaledVector(moveDir, ORBIT_ARROW_LOOK_AHEAD);
+        }
+        target.y = Math.max(controls.target.y, newTarget.y) + Math.max(eyeH, 0.03);
+        if (offset.lengthSq() < 1e-8) offset.set(0, eyeH, eyeH);
+      }
 
       const sv = svRef.current;
       sv.fromPos.copy(camera.position);
       sv.fromTarget.copy(controls.target);
-      sv.toTarget.copy(newTarget);
+      sv.toTarget.copy(target);
       sv.toPos.addVectors(newTarget, offset);
       sv.nextNodeId = nodeId;
       sv.progress = 0;

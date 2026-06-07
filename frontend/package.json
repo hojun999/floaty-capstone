@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "api:dev": "node scripts/local-api-server.mjs",
+    "api:reset": "node scripts/reset-local-api-data.mjs",
     "build": "vite build",
+    "editor:cut-ply": "node scripts/create-editor-cut-ply.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

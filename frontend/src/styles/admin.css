@@ -1347,7 +1347,7 @@
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: #12141f;
+  background: #34373c;
 }
 
 .navgraph-header {
@@ -1385,6 +1385,29 @@
   flex: 1;
 }
 
+.navgraph-header-toggle {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.85);
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.navgraph-header-toggle.active {
+  background: #6b7280;
+  border-color: rgba(209, 213, 219, 0.42);
+  color: #f8fafc;
+}
+
+.navgraph-header-toggle:hover {
+  background: rgba(100, 116, 139, 0.95);
+}
+
 .navgraph-header-tips {
   display: flex;
   gap: 12px;
@@ -1401,7 +1424,7 @@
 .navgraph-canvas {
   flex: 1;
   overflow: hidden;
-  background: #12141f;
+  background: #3f4247;
   position: relative;
 }
 

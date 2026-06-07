@@ -13,6 +13,8 @@ function getHash() {
 function Root() {
   const [page, setPage] = useState(getHash);
   const [editorFloor, setEditorFloor] = useState(null); // { id, label }
+  const [runtimeNavGraph, setRuntimeNavGraph] = useState(null);
+  const [initialNavigation, setInitialNavigation] = useState(null);
 
   useEffect(() => {
     const handler = () => setPage(getHash());
@@ -27,13 +29,34 @@ function Root() {
     navigate('graph-editor');
   };
 
+  const handleEditorSaveGraph = (graph) => {
+    const startNode = graph?.nodes?.find(node => node.type === 'start') ?? graph?.nodes?.[0] ?? null;
+    const seq = Date.now();
+    setRuntimeNavGraph(graph);
+    setInitialNavigation(startNode ? { startNodeId: startNode.id, seq } : null);
+    navigate('');
+  };
+
   if (page === 'admin') {
     return <AdminPage onExit={() => navigate('')} onOpenEditor={openEditor} />;
   }
   if (page === 'graph-editor') {
-    return <NavGraphEditor floorId={editorFloor?.id} floorLabel={editorFloor?.label} onExit={() => navigate('admin')} />;
+    return (
+      <NavGraphEditor
+        floorId={editorFloor?.id}
+        floorLabel={editorFloor?.label}
+        onExit={() => navigate('admin')}
+        onSaveGraph={handleEditorSaveGraph}
+      />
+    );
   }
-  return <App onEnterAdmin={() => navigate('admin')} />;
+  return (
+    <App
+      onEnterAdmin={() => navigate('admin')}
+      navGraph={runtimeNavGraph}
+      initialNavigation={initialNavigation}
+    />
+  );
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
