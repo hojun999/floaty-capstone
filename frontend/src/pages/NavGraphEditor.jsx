@@ -103,7 +103,9 @@ function makeArrow(color) {
 }
 
 // ─── 컴포넌트 ─────────────────────────────────────────────────────────────────
-export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGraph }) {
+export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGraph, targetType = 'floor', targetId }) {
+  const graphTargetType = targetType || 'floor';
+  const graphTargetId = targetId ?? floorId;
   const mountRef   = useRef(null);
   const threeRef   = useRef(null);
   const addModeRef = useRef(false);
@@ -796,8 +798,11 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
     };
 
     // 에디터는 로컬 model_editor_cut을 우선 사용하고, 없으면 원본/API/default로 fallback한다.
-    if (floorId) {
-      fetch(`${API}/api/floors/${floorId}`)
+    if (graphTargetId) {
+      const detailUrl = graphTargetType === 'space'
+        ? `${API}/api/spaces/${graphTargetId}`
+        : `${API}/api/floors/${graphTargetId}`;
+      fetch(detailUrl)
         .then(r => r.ok ? r.json() : null)
         .then(async (floor) => {
           const modelUrl = await pickFirstExistingUrl([
@@ -893,8 +898,11 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
 
     setSaveStatus('saving');
     try {
-      if (floorId) {
-        const res = await fetch(`${API}/api/navigation/floors/${floorId}/graph`, {
+      if (graphTargetId) {
+        const graphUrl = graphTargetType === 'space'
+          ? `${API}/api/navigation/spaces/${graphTargetId}/graph`
+          : `${API}/api/navigation/floors/${graphTargetId}/graph`;
+        const res = await fetch(graphUrl, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),

@@ -1713,3 +1713,13 @@
   .admin-step-label { display: none; }
   .admin-step.active .admin-step-label { display: block; font-size: 11px; }
 }
+
+
+.admin-space-manager { border-top: 1px solid var(--color-border); margin-top: 20px; padding: 20px; }
+.admin-space-panel { border: 1px solid var(--color-border); border-radius: var(--radius-md); margin-top: 12px; padding: 14px; background: var(--color-surface); }
+.admin-space-header, .admin-space-item, .admin-space-form { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.admin-space-form { margin: 12px 0; }
+.admin-space-form .admin-input { max-width: 320px; }
+.admin-space-list { display: grid; gap: 8px; }
+.admin-space-item { border: 1px solid var(--color-border); border-radius: 6px; padding: 10px 12px; background: var(--color-surface-alt); }
+@media (max-width: 760px) { .admin-space-header, .admin-space-item, .admin-space-form { align-items: stretch; flex-direction: column; } .admin-space-form .admin-input { max-width: none; } }

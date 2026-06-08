@@ -3,12 +3,17 @@ import '../styles/admin.css';
 import {
   createBuilding,
   createFloor,
+  createSpace,
   deleteBuilding,
   deleteFloor,
+  deleteSpace,
   fetchBuildings,
   fetchFloors,
+  fetchSpaces,
   updateBuilding,
   updateFloor,
+  uploadFloorPly,
+  uploadSpacePly,
 } from '../utils/api';
 
 const DEFAULT_COMPLETED_SPLAT_PATH = '/Open3d.ply';
@@ -960,6 +965,56 @@ function BuildingManager({ onOpenFloors }) {
 }
 
 // ─── 층 관리 ──────────────────────────────────────────────────────────
+function SpacePlyManager({ floors, selectedBuilding, onOpenEditor, onRefreshFloors }) {
+  const [spacesByFloor, setSpacesByFloor] = useState({});
+  const [spaceNameByFloor, setSpaceNameByFloor] = useState({});
+  const [uploadingKey, setUploadingKey] = useState('');
+  const [error, setError] = useState('');
+  const loadSpacesForFloor = async (floorId) => {
+    try { const data = await fetchSpaces(floorId); setSpacesByFloor(prev => ({ ...prev, [floorId]: data })); }
+    catch { setSpacesByFloor(prev => ({ ...prev, [floorId]: [] })); }
+  };
+  useEffect(() => { floors.forEach(f => loadSpacesForFloor(f.id)); }, [floors]);
+  const handleCreateSpace = async (floorId) => {
+    const name = (spaceNameByFloor[floorId] || '').trim();
+    if (!name) { setError('Space name is required.'); return; }
+    try { await createSpace({ floor_id: floorId, name, space_type: 'room' }); setSpaceNameByFloor(prev => ({ ...prev, [floorId]: '' })); setError(''); loadSpacesForFloor(floorId); }
+    catch { setError('Failed to create space.'); }
+  };
+  const handleDeleteSpace = async (floorId, spaceId) => {
+    if (!window.confirm('Delete this space?')) return;
+    try { await deleteSpace(spaceId); loadSpacesForFloor(floorId); }
+    catch { setError('Failed to delete space.'); }
+  };
+  const handlePlyUpload = async (targetType, id, file, floorIdForRefresh = null) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.ply')) { setError('Only .ply files can be uploaded.'); return; }
+    const key = `${targetType}:${id}`;
+    setUploadingKey(key);
+    try { if (targetType === 'space') await uploadSpacePly(id, file); else await uploadFloorPly(id, file); setError(''); if (targetType === 'space' && floorIdForRefresh) loadSpacesForFloor(floorIdForRefresh); if (targetType === 'floor') onRefreshFloors?.(); }
+    catch { setError('PLY upload failed.'); }
+    finally { setUploadingKey(''); }
+  };
+  if (!floors.length) return null;
+  return (
+    <div className="admin-space-manager">
+      <h3 className="admin-form-card-title">PLY / Space management</h3>
+      {error && <div className="admin-tip" style={{ borderColor: 'var(--admin-danger)', marginBottom: 12 }}><Icon name="alert" size={15} /><span>{error}</span></div>}
+      {floors.map(f => {
+        const floorLabel = `${selectedBuilding?.name || ''} ${f.floor_name || f.floor_number + 'F'}`;
+        const floorSpaces = spacesByFloor[f.id] || [];
+        return (
+          <div className="admin-space-panel" key={`space-panel-${f.id}`}>
+            <div className="admin-space-header"><div><strong>{floorLabel}</strong><div className="admin-table-muted">{f.splat_path ? 'Floor PLY linked' : 'Floor PLY not uploaded'}</div></div><div className="admin-table-actions"><button className="admin-btn admin-btn-sm admin-btn-outline" onClick={() => onOpenEditor(f.id, floorLabel, 'floor')}><Icon name="network" size={13} /> Floor graph</button><label className="admin-btn admin-btn-sm admin-btn-outline">{uploadingKey === `floor:${f.id}` ? 'Uploading...' : 'Upload floor PLY'}<input type="file" accept=".ply" style={{ display: 'none' }} onChange={e => handlePlyUpload('floor', f.id, e.target.files?.[0])} /></label></div></div>
+            <div className="admin-space-form"><input className="admin-input" value={spaceNameByFloor[f.id] || ''} placeholder="Room / space name" onChange={e => setSpaceNameByFloor(prev => ({ ...prev, [f.id]: e.target.value }))} /><button className="admin-btn admin-btn-sm admin-btn-primary" onClick={() => handleCreateSpace(f.id)}>Add space</button></div>
+            {floorSpaces.length === 0 ? <div className="admin-table-muted">No spaces registered.</div> : <div className="admin-space-list">{floorSpaces.map(space => <div className="admin-space-item" key={space.id}><div><strong>{space.name}</strong><span className="admin-table-muted"> - {space.splat_path ? 'PLY linked' : 'No PLY'}</span></div><div className="admin-table-actions"><button className="admin-btn admin-btn-sm admin-btn-outline" onClick={() => onOpenEditor(space.id, `${floorLabel} / ${space.name}`, 'space')}><Icon name="network" size={13} /> Space graph</button><label className="admin-btn admin-btn-sm admin-btn-outline">{uploadingKey === `space:${space.id}` ? 'Uploading...' : 'Upload PLY'}<input type="file" accept=".ply" style={{ display: 'none' }} onChange={e => handlePlyUpload('space', space.id, e.target.files?.[0], f.id)} /></label><button className="admin-icon-btn admin-icon-btn-danger" title="Delete space" onClick={() => handleDeleteSpace(f.id, space.id)}><Icon name="trash" size={15} /></button></div></div>)}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function FloorManager({ onOpenEditor, initialBuildingId, floorOverrides = {} }) {
   const [buildings,    setBuildings]    = useState([]);
   const [selectedBId,  setSelectedBId]  = useState(initialBuildingId || null);
@@ -1116,11 +1171,18 @@ function FloorManager({ onOpenEditor, initialBuildingId, floorOverrides = {} }) 
             </table>
           </div>
         )}
+      {selectedBId && floors.length > 0 && (
+        <SpacePlyManager
+          floors={floors}
+          selectedBuilding={selectedBuilding}
+          onOpenEditor={onOpenEditor}
+          onRefreshFloors={() => loadFloors(selectedBId)}
+        />
+      )}
     </div>
   );
 }
 
-// ─── 사이드바 ─────────────────────────────────────────────────────────
 const NAV_ITEMS = [
   { key: 'dashboard', label: '대시보드',   icon: 'dashboard' },
   { key: 'buildings', label: '건물 관리',  icon: 'building'  },

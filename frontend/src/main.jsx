@@ -12,7 +12,7 @@ function getHash() {
 
 function Root() {
   const [page, setPage] = useState(getHash);
-  const [editorFloor, setEditorFloor] = useState(null); // { id, label }
+  const [editorTarget, setEditorTarget] = useState(null); // { type, id, label }
   const [runtimeNavGraph, setRuntimeNavGraph] = useState(null);
   const [initialNavigation, setInitialNavigation] = useState(null);
 
@@ -24,8 +24,8 @@ function Root() {
 
   const navigate = (hash) => { window.location.hash = hash; };
 
-  const openEditor = (floorId, floorLabel) => {
-    setEditorFloor({ id: floorId, label: floorLabel });
+  const openEditor = (id, label, type = 'floor') => {
+    setEditorTarget({ type, id, label });
     navigate('graph-editor');
   };
 
@@ -43,8 +43,10 @@ function Root() {
   if (page === 'graph-editor') {
     return (
       <NavGraphEditor
-        floorId={editorFloor?.id}
-        floorLabel={editorFloor?.label}
+        targetType={editorTarget?.type || 'floor'}
+        targetId={editorTarget?.id}
+        floorId={editorTarget?.type === 'space' ? null : editorTarget?.id}
+        floorLabel={editorTarget?.label}
         onExit={() => navigate('admin')}
         onSaveGraph={handleEditorSaveGraph}
       />
