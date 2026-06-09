@@ -1093,6 +1093,20 @@ function SpacePlyManager({ floors, selectedBuilding, onOpenEditor, onRefreshFloo
     catch { setError('PLY upload failed.'); }
     finally { setUploadingKey(''); }
   };
+  const handleOpenFloorGraph = (floor, floorLabel) => {
+    if (!floor?.splat_path) {
+      window.alert('등록된 PLY 모델이 없습니다. 먼저 해당 층에 PLY 파일을 업로드하세요.');
+      return;
+    }
+    onOpenEditor(floor.id, floorLabel, 'floor');
+  };
+  const handleOpenSpaceGraph = (space, label) => {
+    if (!space?.splat_path) {
+      window.alert('등록된 PLY 모델이 없습니다. 먼저 해당 공간에 PLY 파일을 업로드하세요.');
+      return;
+    }
+    onOpenEditor(space.id, label, 'space');
+  };
   if (!floors.length) return null;
   return (
     <div className="admin-space-manager">
@@ -1103,9 +1117,9 @@ function SpacePlyManager({ floors, selectedBuilding, onOpenEditor, onRefreshFloo
         const floorSpaces = spacesByFloor[f.id] || [];
         return (
           <div className="admin-space-panel" key={`space-panel-${f.id}`}>
-            <div className="admin-space-header"><div><strong>{floorLabel}</strong><div className="admin-table-muted">{f.splat_path ? 'Floor PLY linked' : 'Floor PLY not uploaded'}</div></div><div className="admin-table-actions"><button className="admin-btn admin-btn-sm admin-btn-outline" onClick={() => onOpenEditor(f.id, floorLabel, 'floor')}><Icon name="network" size={13} /> Floor graph</button><label className="admin-btn admin-btn-sm admin-btn-outline">{uploadingKey === `floor:${f.id}` ? 'Uploading...' : 'Upload floor PLY'}<input type="file" accept=".ply" style={{ display: 'none' }} onChange={e => handlePlyUpload('floor', f.id, e.target.files?.[0])} /></label></div></div>
+            <div className="admin-space-header"><div><strong>{floorLabel}</strong><div className="admin-table-muted">{f.splat_path ? 'Floor PLY linked' : 'Floor PLY not uploaded'}</div></div><div className="admin-table-actions"><button className="admin-btn admin-btn-sm admin-btn-outline" onClick={() => handleOpenFloorGraph(f, floorLabel)}><Icon name="network" size={13} /> Floor graph</button><label className="admin-btn admin-btn-sm admin-btn-outline">{uploadingKey === `floor:${f.id}` ? 'Uploading...' : 'Upload floor PLY'}<input type="file" accept=".ply" style={{ display: 'none' }} onChange={e => handlePlyUpload('floor', f.id, e.target.files?.[0])} /></label></div></div>
             <div className="admin-space-form"><input className="admin-input" value={spaceNameByFloor[f.id] || ''} placeholder="Room / space name" onChange={e => setSpaceNameByFloor(prev => ({ ...prev, [f.id]: e.target.value }))} /><button className="admin-btn admin-btn-sm admin-btn-primary" onClick={() => handleCreateSpace(f.id)}>Add space</button></div>
-            {floorSpaces.length === 0 ? <div className="admin-table-muted">No spaces registered.</div> : <div className="admin-space-list">{floorSpaces.map(space => <div className="admin-space-item" key={space.id}><div><strong>{space.name}</strong><span className="admin-table-muted"> - {space.splat_path ? 'PLY linked' : 'No PLY'}</span></div><div className="admin-table-actions"><button className="admin-btn admin-btn-sm admin-btn-outline" onClick={() => onOpenEditor(space.id, `${floorLabel} / ${space.name}`, 'space')}><Icon name="network" size={13} /> Space graph</button><label className="admin-btn admin-btn-sm admin-btn-outline">{uploadingKey === `space:${space.id}` ? 'Uploading...' : 'Upload PLY'}<input type="file" accept=".ply" style={{ display: 'none' }} onChange={e => handlePlyUpload('space', space.id, e.target.files?.[0], f.id)} /></label><button className="admin-icon-btn admin-icon-btn-danger" title="Delete space" onClick={() => handleDeleteSpace(f.id, space.id)}><Icon name="trash" size={15} /></button></div></div>)}</div>}
+            {floorSpaces.length === 0 ? <div className="admin-table-muted">No spaces registered.</div> : <div className="admin-space-list">{floorSpaces.map(space => <div className="admin-space-item" key={space.id}><div><strong>{space.name}</strong><span className="admin-table-muted"> - {space.splat_path ? 'PLY linked' : 'No PLY'}</span></div><div className="admin-table-actions"><button className="admin-btn admin-btn-sm admin-btn-outline" onClick={() => handleOpenSpaceGraph(space, `${floorLabel} / ${space.name}`)}><Icon name="network" size={13} /> Space graph</button><label className="admin-btn admin-btn-sm admin-btn-outline">{uploadingKey === `space:${space.id}` ? 'Uploading...' : 'Upload PLY'}<input type="file" accept=".ply" style={{ display: 'none' }} onChange={e => handlePlyUpload('space', space.id, e.target.files?.[0], f.id)} /></label><button className="admin-icon-btn admin-icon-btn-danger" title="Delete space" onClick={() => handleDeleteSpace(f.id, space.id)}><Icon name="trash" size={15} /></button></div></div>)}</div>}
           </div>
         );
       })}
@@ -1175,6 +1189,13 @@ function FloorManager({ onOpenEditor, initialBuildingId, floorOverrides = {} }) 
   };
 
   const selectedBuilding = buildings.find(b => b.id === selectedBId);
+  const handleOpenFloorGraph = (floor, floorLabel) => {
+    if (!floor?.splat_path) {
+      window.alert('등록된 PLY 모델이 없습니다. 먼저 해당 층에 PLY 파일을 업로드하세요.');
+      return;
+    }
+    onOpenEditor(floor.id, floorLabel, 'floor');
+  };
 
   return (
     <div className="admin-content-inner">
@@ -1250,7 +1271,7 @@ function FloorManager({ onOpenEditor, initialBuildingId, floorOverrides = {} }) 
                         <div className="admin-table-actions">
                           <button className="admin-btn admin-btn-sm admin-btn-outline"
                             title="그래프 편집"
-                            onClick={() => onOpenEditor(f.id, floorLabel)}>
+                            onClick={() => handleOpenFloorGraph(f, floorLabel)}>
                             <Icon name="network" size={13} /> 그래프 편집
                           </button>
                           <button className="admin-icon-btn" title="수정" onClick={() => openEdit(f)}>
