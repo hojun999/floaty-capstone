@@ -155,6 +155,78 @@ const STATUS_CLASS = {
 const DUMMY_BUILDINGS = [];
 const DUMMY_FLOORS = [];
 
+const formatDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : date.toISOString().slice(0, 10);
+};
+
+const normalizeModelStatus = (floor) => {
+  if (floor?.status === 'completed') return 'done';
+  if (floor?.status === 'failed') return 'error';
+  if (floor?.status === 'processing' || floor?.status === 'queued') return 'processing';
+  return floor?.splat_path ? 'done' : 'queued';
+};
+
+const buildFloorModelRows = (buildings, floorsByBuilding) => (
+  buildings
+    .flatMap((building) => (floorsByBuilding[building.id] || []).map((floor) => ({
+      id: `floor-${floor.id}`,
+      name: `${building.name} ${floor.floor_name || `${floor.floor_number}층`}`,
+      status: normalizeModelStatus(floor),
+      floor: floor.floor_number,
+      date: formatDate(floor.created_at),
+      linked: Boolean(floor.splat_path),
+      createdAt: floor.created_at || '',
+    })))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+);
+
+function useFloorModels() {
+  const [buildings, setBuildings] = useState([]);
+  const [models, setModels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const loadedBuildings = await fetchBuildings();
+        const floorEntries = await Promise.all(
+          loadedBuildings.map(async (building) => {
+            try {
+              return [building.id, await fetchFloors(building.id)];
+            } catch {
+              return [building.id, []];
+            }
+          }),
+        );
+        if (cancelled) return;
+        const floorsByBuilding = Object.fromEntries(floorEntries);
+        setBuildings(loadedBuildings);
+        setModels(buildFloorModelRows(loadedBuildings, floorsByBuilding));
+      } catch (err) {
+        if (!cancelled) {
+          setBuildings([]);
+          setModels([]);
+          setError(describeApiError(err, '대시보드 데이터를 불러오지 못했습니다.'));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  return { buildings, models, loading, error };
+}
+
 const UNUSED_DUMMY_BUILDINGS = [
   { id: 1, name: '공학관',   address: '서울시 광진구 능동로 120', description: '공과대학 메인 건물' },
   { id: 2, name: '도서관',   address: '서울시 광진구 능동로 120', description: '중앙도서관' },
@@ -184,11 +256,15 @@ const UNUSED_DUMMY_FLOORS = [
 
 // ─── 대시보드 ─────────────────────────────────────────────────────────
 function Dashboard({ onNavigate, onOpenEditor }) {
+  const { buildings, models, loading, error } = useFloorModels();
+  const completedCount = models.filter((m) => m.status === 'done').length;
+  const processingCount = models.filter((m) => m.status === 'processing').length;
+  const errorCount = models.filter((m) => m.status === 'error').length;
   const stats = [
-    { label: '등록된 공간', value: '4', sub: '3개 건물', color: 'var(--admin-primary)' },
-    { label: '처리 완료', value: '2', sub: '이번 달', color: 'var(--admin-success)' },
-    { label: '처리 중', value: '1', sub: '예상 23분', color: 'var(--admin-warning)' },
-    { label: '오류', value: '1', sub: '확인 필요', color: 'var(--admin-danger)' },
+    { label: '등록된 공간', value: String(models.length), sub: `${buildings.length}개 건물`, color: 'var(--admin-primary)' },
+    { label: '처리 완료', value: String(completedCount), sub: 'PLY 연결됨', color: 'var(--admin-success)' },
+    { label: '처리 중', value: String(processingCount), sub: '대기/진행', color: 'var(--admin-warning)' },
+    { label: '오류', value: String(errorCount), sub: '확인 필요', color: 'var(--admin-danger)' },
   ];
 
   return (
@@ -205,6 +281,12 @@ function Dashboard({ onNavigate, onOpenEditor }) {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="admin-tip" style={{ borderColor: 'var(--admin-danger)', marginBottom: 12 }}>
+          <Icon name="alert" size={15} /><span>{error}</span>
+        </div>
+      )}
 
       {/* 통계 카드 */}
       <div className="admin-stat-grid">
@@ -226,7 +308,9 @@ function Dashboard({ onNavigate, onOpenEditor }) {
           <h3 className="admin-section-title">최근 등록 모델</h3>
           <button className="admin-text-btn" onClick={() => onNavigate('models')}>전체 보기 →</button>
         </div>
-        <ModelTable models={DUMMY_MODELS.slice(0, 3)} onNavigate={onNavigate} />
+        {loading
+          ? <div className="admin-empty">불러오는 중...</div>
+          : <ModelTable models={models.slice(0, 3)} onNavigate={onNavigate} />}
       </div>
 
     </div>
@@ -235,6 +319,10 @@ function Dashboard({ onNavigate, onOpenEditor }) {
 
 // ─── 모델 테이블 ──────────────────────────────────────────────────────
 function ModelTable({ models, onNavigate }) {
+  if (models.length === 0) {
+    return <div className="admin-empty">등록된 모델이 없습니다.</div>;
+  }
+
   return (
     <div className="admin-table-wrap">
       <table className="admin-table">
@@ -259,9 +347,9 @@ function ModelTable({ models, onNavigate }) {
               </td>
               <td><span className="admin-floor-badge">{m.floor}F</span></td>
               <td>
-                <span className={`admin-status-badge ${STATUS_CLASS[m.status]}`}>
+                <span className={`admin-status-badge ${STATUS_CLASS[m.status] || ''}`}>
                   {m.status === 'processing' && <span className="admin-spinner-dot" />}
-                  {STATUS_LABEL[m.status]}
+                  {STATUS_LABEL[m.status] || m.status || '미정'}
                 </span>
               </td>
               {/* <td>
@@ -691,13 +779,14 @@ function UploadWizard({ onCompleted }) {
 // ─── 모델 관리 ────────────────────────────────────────────────────────
 function ModelManager({ onNavigate }) {
   const [filter, setFilter] = useState('all');
+  const { models, loading, error } = useFloorModels();
   const filters = [
     { key: 'all', label: '전체' },
     { key: 'done', label: '완료' },
     { key: 'processing', label: '처리중' },
     { key: 'error', label: '오류' },
   ];
-  const filtered = filter === 'all' ? DUMMY_MODELS : DUMMY_MODELS.filter((m) => m.status === filter);
+  const filtered = filter === 'all' ? models : models.filter((m) => m.status === filter);
 
   return (
     <div className="admin-content-inner">
@@ -711,19 +800,27 @@ function ModelManager({ onNavigate }) {
         </button>
       </div>
 
+      {error && (
+        <div className="admin-tip" style={{ borderColor: 'var(--admin-danger)', marginBottom: 12 }}>
+          <Icon name="alert" size={15} /><span>{error}</span>
+        </div>
+      )}
+
       <div className="admin-filter-bar">
         {filters.map((f) => (
           <button key={f.key} className={`admin-filter-btn ${filter === f.key ? 'active' : ''}`}
             onClick={() => setFilter(f.key)}>
             {f.label}
             <span className="admin-filter-count">
-              {f.key === 'all' ? DUMMY_MODELS.length : DUMMY_MODELS.filter((m) => m.status === f.key).length}
+              {f.key === 'all' ? models.length : models.filter((m) => m.status === f.key).length}
             </span>
           </button>
         ))}
       </div>
 
-      <ModelTable models={filtered} onNavigate={onNavigate} />
+      {loading
+        ? <div className="admin-empty">불러오는 중...</div>
+        : <ModelTable models={filtered} onNavigate={onNavigate} />}
     </div>
   );
 }
