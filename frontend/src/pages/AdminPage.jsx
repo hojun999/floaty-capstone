@@ -1090,7 +1090,7 @@ function SpacePlyManager({ floors, selectedBuilding, onOpenEditor, onRefreshFloo
     const key = `${targetType}:${id}`;
     setUploadingKey(key);
     try { if (targetType === 'space') await uploadSpacePly(id, file); else await uploadFloorPly(id, file); setError(''); if (targetType === 'space' && floorIdForRefresh) loadSpacesForFloor(floorIdForRefresh); if (targetType === 'floor') onRefreshFloors?.(); }
-    catch { setError('PLY upload failed.'); }
+    catch (error) { setError(describeApiError(error, 'PLY upload failed.')); }
     finally { setUploadingKey(''); }
   };
   const handleOpenFloorGraph = (floor, floorLabel) => {
