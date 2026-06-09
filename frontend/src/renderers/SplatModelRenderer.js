@@ -5,6 +5,7 @@ const inferSceneFormat = (path) => {
   if (lowerPath.endsWith('.ply')) return GaussianSplats3D.SceneFormat.Ply;
   if (lowerPath.endsWith('/model')) return GaussianSplats3D.SceneFormat.Ply;
   if (lowerPath.endsWith('/model_editor_cut')) return GaussianSplats3D.SceneFormat.Ply;
+  if (lowerPath.includes('/ply-file')) return GaussianSplats3D.SceneFormat.Ply;
   if (lowerPath.endsWith('.splat')) return GaussianSplats3D.SceneFormat.Splat;
   if (lowerPath.endsWith('.ksplat')) return GaussianSplats3D.SceneFormat.KSplat;
   return undefined;

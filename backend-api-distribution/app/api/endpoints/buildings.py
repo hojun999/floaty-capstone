@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -16,7 +17,11 @@ from app.schemas.building import (
     SpaceResponse,
     SpaceUpdate,
 )
-from app.services.r2_storage import upload_ply_to_r2
+from app.services.r2_storage import (
+    get_ply_object_from_r2,
+    object_key_from_public_url,
+    upload_ply_to_r2,
+)
 
 router = APIRouter()
 
@@ -138,6 +143,17 @@ def upload_floor_ply(
     return floor
 
 
+@router.get("/floors/{floor_id}/ply-file")
+def get_floor_ply_file(floor_id: int, db: Session = Depends(get_db)):
+    floor = db.query(Floor).filter(Floor.id == floor_id).first()
+    if not floor:
+        raise HTTPException(status_code=404, detail="Floor not found")
+    return _stream_ply_or_error(
+        object_key_from_public_url(floor.splat_path),
+        f"floor-{floor.id}.ply",
+    )
+
+
 @router.post("/spaces", response_model=SpaceResponse)
 def create_space(data: SpaceCreate, db: Session = Depends(get_db)):
     floor = db.query(Floor).filter(Floor.id == data.floor_id).first()
@@ -220,6 +236,17 @@ def upload_space_ply(
     return space
 
 
+@router.get("/spaces/{space_id}/ply-file")
+def get_space_ply_file(space_id: int, db: Session = Depends(get_db)):
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
+        raise HTTPException(status_code=404, detail="Space not found")
+    return _stream_ply_or_error(
+        space.object_key or object_key_from_public_url(space.splat_path),
+        f"space-{space.id}.ply",
+    )
+
+
 def _upload_ply_or_error(file: UploadFile, prefix: str):
     try:
         return upload_ply_to_r2(file, prefix)
@@ -227,3 +254,32 @@ def _upload_ply_or_error(file: UploadFile, prefix: str):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _stream_ply_or_error(object_key: str | None, filename: str):
+    if not object_key:
+        raise HTTPException(status_code=404, detail="PLY file is not linked")
+    try:
+        r2_object = get_ply_object_from_r2(object_key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    headers = {
+        "Content-Disposition": f'inline; filename="{filename}"',
+        "Cache-Control": "public, max-age=3600",
+    }
+    if r2_object.content_length is not None:
+        headers["Content-Length"] = str(r2_object.content_length)
+
+    return StreamingResponse(
+        _iter_r2_body(r2_object.body),
+        media_type=r2_object.content_type,
+        headers=headers,
+    )
+
+
+def _iter_r2_body(body):
+    try:
+        yield from body.iter_chunks(chunk_size=1024 * 1024)
+    finally:
+        body.close()

@@ -22,6 +22,13 @@ class R2UploadResult:
     original_filename: str | None
 
 
+@dataclass
+class R2ObjectResult:
+    body: object
+    content_length: int | None
+    content_type: str
+
+
 def upload_ply_to_r2(file: UploadFile, prefix: str) -> R2UploadResult:
     _validate_ply_file(file)
     account_id = get_r2_account_id()
@@ -72,6 +79,60 @@ def upload_ply_to_r2(file: UploadFile, prefix: str) -> R2UploadResult:
         url=f"{public_base_url.rstrip('/')}/{object_key}",
         original_filename=file.filename,
     )
+
+
+def get_ply_object_from_r2(object_key: str) -> R2ObjectResult:
+    account_id = get_r2_account_id()
+    access_key_id = get_r2_access_key_id()
+    secret_access_key = get_r2_secret_access_key()
+    bucket_name = get_r2_bucket_name()
+    if not all([account_id, access_key_id, secret_access_key, bucket_name]):
+        raise RuntimeError(
+            "Cloudflare R2 download is not configured. Set R2_ACCOUNT_ID, "
+            "R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET_NAME."
+        )
+
+    try:
+        import boto3
+    except ImportError as exc:
+        raise RuntimeError("boto3 is not installed. Install project dependencies.") from exc
+
+    try:
+        client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            region_name="auto",
+        )
+        response = client.get_object(Bucket=bucket_name, Key=object_key)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Cloudflare R2 download failed: {exc.__class__.__name__}: {exc}"
+        ) from exc
+
+    return R2ObjectResult(
+        body=response["Body"],
+        content_length=response.get("ContentLength"),
+        content_type=response.get("ContentType") or "application/octet-stream",
+    )
+
+
+def object_key_from_public_url(url: str | None) -> str | None:
+    if not url:
+        return None
+
+    public_base_url = get_r2_public_base_url()
+    if public_base_url:
+        prefix = f"{public_base_url.rstrip('/')}/"
+        if url.startswith(prefix):
+            return url[len(prefix):].lstrip("/")
+
+    marker = "/buildings/"
+    if marker in url:
+        return f"buildings/{url.split(marker, 1)[1]}".lstrip("/")
+
+    return None
 
 
 def _validate_ply_file(file: UploadFile) -> None:

@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import { MODEL_ROTATION_X, SPLAT_MODEL_TRANSFORM } from '../renderers/modelTransforms.js';
 import { createSplatRenderer } from '../renderers/SplatModelRenderer.js';
-import { API_BASE, fetchSpaces } from '../utils/api.js';
+import { API_BASE, fetchSpaces, floorPlyFileUrl, spacePlyFileUrl } from '../utils/api.js';
 
 const API = API_BASE;
 const EDITOR_MOVE_SPEED_FACTOR = 0.006;
@@ -23,6 +23,13 @@ const EDITOR_AXIS_Z = 0x767676;
 const EDITOR_GRID_SIZE = 100;
 const EDITOR_GRID_DIVISIONS = 100;
 const EDITOR_GRID_BOUND_PADDING = 0.35;
+
+const getTargetPlyFileUrl = (targetType, targetId) => {
+  if (!targetId) return null;
+  return targetType === 'space'
+    ? spacePlyFileUrl(targetId)
+    : floorPlyFileUrl(targetId);
+};
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 const NODE_TYPES = {
@@ -831,6 +838,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
         .then(r => r.ok ? r.json() : null)
         .then(async (target) => {
           const modelUrl = await pickFirstExistingUrl([
+            getTargetPlyFileUrl(graphTargetType, graphTargetId),
             target?.splat_path,
             ...(graphTargetType === 'floor' ? getLocalFloorModelUrls(target) : []),
             DEFAULT_MODEL_URL,

@@ -3,7 +3,16 @@ import Viewer3D from './components/Viewer3D';
 import SearchBar from './components/SearchBar';
 import RoutePanel from './components/RoutePanel';
 import InfoCards from './components/InfoCards';
-import { fetchBuildings, fetchFloor, fetchFloors, fetchNavGraph, fetchNavPath, fetchSpace } from './utils/api';
+import {
+  fetchBuildings,
+  fetchFloor,
+  fetchFloors,
+  fetchNavGraph,
+  fetchNavPath,
+  fetchSpace,
+  floorPlyFileUrl,
+  spacePlyFileUrl,
+} from './utils/api';
 import NAV_GRAPH from './data/navGraph.json';
 
 const SEARCHABLE_NODE_TYPES = new Set(['start', 'destination', 'door']);
@@ -137,7 +146,9 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
 
   useEffect(() => {
     let cancelled = false;
-    const fallbackUrl = selectedFloor?.splat_path || selectedFloor?.ply_url || undefined;
+    const fallbackUrl = selectedFloor?.splat_path
+      ? floorPlyFileUrl(selectedFloor.id)
+      : selectedFloor?.ply_url || undefined;
     const localUrls = getLocalFloorModelUrls(selectedBuilding, selectedFloor);
 
     if (localUrls.length === 0) {
@@ -173,7 +184,7 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
         setActiveSpaceModel({
           id: space.id,
           name: space.name || node.name || `Space ${space.id}`,
-          splat_path: space.splat_path,
+          splat_path: spacePlyFileUrl(space.id),
         });
       })
       .catch(() => window.alert('연결된 공간 정보를 불러오지 못했습니다.'));
