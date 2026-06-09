@@ -17,7 +17,7 @@ import {
   uploadSpacePly,
 } from '../utils/api';
 
-const DEFAULT_COMPLETED_SPLAT_PATH = '/Open3d.ply';
+const DEFAULT_COMPLETED_SPLAT_PATH = '/Open3d2.ply';
 
 // ─── 아이콘 컴포넌트 (SVG) ───────────────────────────────────────────
 const Icon = ({ name, size = 18 }) => {
@@ -978,7 +978,7 @@ function BuildingManager({ onOpenFloors }) {
     try {
       await deleteBuilding(id);
       load();
-    } catch { setError('삭제에 실패했습니다.'); }
+    } catch (error) { setError(describeApiError(error, '삭제에 실패했습니다.')); }
   };
 
   return (
@@ -1082,7 +1082,7 @@ function SpacePlyManager({ floors, selectedBuilding, onOpenEditor, onRefreshFloo
   const handleDeleteSpace = async (floorId, spaceId) => {
     if (!window.confirm('Delete this space?')) return;
     try { await deleteSpace(spaceId); loadSpacesForFloor(floorId); }
-    catch { setError('Failed to delete space.'); }
+    catch (error) { setError(describeApiError(error, 'Failed to delete space.')); }
   };
   const handlePlyUpload = async (targetType, id, file, floorIdForRefresh = null) => {
     if (!file) return;
@@ -1183,8 +1183,8 @@ function FloorManager({ onOpenEditor, initialBuildingId, floorOverrides = {} }) 
     try {
       await deleteFloor(id);
       loadFloors(selectedBId);
-    } catch {
-      setError('삭제에 실패했습니다.');
+    } catch (error) {
+      setError(describeApiError(error, '삭제에 실패했습니다.'));
     }
   };
 

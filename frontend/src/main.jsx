@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import AdminPage from './pages/AdminPage';
 import NavGraphEditor from './pages/NavGraphEditor';
+import { floorPlyFileUrl, spacePlyFileUrl } from './utils/api';
 import './styles/global.css';
 import './styles/admin.css';
 
@@ -32,8 +33,19 @@ function Root() {
   const handleEditorSaveGraph = (graph) => {
     const startNode = graph?.nodes?.find(node => node.type === 'start') ?? graph?.nodes?.[0] ?? null;
     const seq = Date.now();
+    const targetType = editorTarget?.type || 'floor';
+    const targetId = editorTarget?.id ?? null;
+    const modelUrl = targetId
+      ? (targetType === 'space' ? spacePlyFileUrl(targetId) : floorPlyFileUrl(targetId))
+      : null;
     setRuntimeNavGraph(graph);
-    setInitialNavigation(startNode ? { startNodeId: startNode.id, seq } : null);
+    setInitialNavigation({
+      startNodeId: startNode?.id || null,
+      seq,
+      targetType,
+      targetId,
+      modelUrl,
+    });
     navigate('viewer');
   };
 

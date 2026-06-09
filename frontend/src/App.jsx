@@ -256,6 +256,10 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
     setRouteError('');
   }, []);
 
+  const viewerModelUrl = activeSpaceModel?.splat_path
+    || selectedModelUrl
+    || initialNavigation?.modelUrl;
+
   const handleBuildingChange = (e) => {
     setSelectedBuildingId(Number(e.target.value) || null);
   };
@@ -354,13 +358,13 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
           <div className="viewer-grid single" style={{ position: 'relative' }}>
           {viewMode === '3d' && (
             <Viewer3D
-              key={`${selectedFloorId || 'local'}:${activeSpaceModel?.splat_path || selectedModelUrl || 'default'}`}
+              key={`${selectedFloorId || initialNavigation?.targetId || 'local'}:${viewerModelUrl || 'default'}`}
               selectedDest={selectedDest}
               routePoints={routePath}
               navGraph={activeNavGraph}
               navCommand={navCommand}
               initialViewMode={initialNavigation?.startNodeId ? 'pedestrian' : 'orbit'}
-              modelUrl={activeSpaceModel?.splat_path || selectedModelUrl}
+              modelUrl={viewerModelUrl}
               onNodeActivate={handleNodeActivate}
             />
           )}

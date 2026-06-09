@@ -40,7 +40,7 @@ const READERS = {
   float64: (buffer, offset) => buffer.readDoubleLE(offset),
 };
 
-const DEFAULT_INPUT = 'public/Open3d.ply';
+const DEFAULT_INPUT = 'public/Open3d2.ply';
 const DEFAULT_ROTATION_X_DEG = -90;
 const DEFAULT_CUT_RATIO = 0.2;
 
@@ -94,8 +94,8 @@ Create an editor-only 3DGS PLY with high ceiling splats removed.
 
 Usage:
   npm run editor:cut-ply
-  npm run editor:cut-ply -- --input public/Open3d.ply --cut-ratio 0.25
-  npm run editor:cut-ply -- --input public/Open3d.ply --cut-y 1.8
+  npm run editor:cut-ply -- --input public/Open3d2.ply --cut-ratio 0.25
+  npm run editor:cut-ply -- --input public/Open3d2.ply --cut-y 1.8
 
 Options:
   --input, -i       Source 3DGS PLY. Default: ${DEFAULT_INPUT}

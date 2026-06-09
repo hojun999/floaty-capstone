@@ -14,7 +14,7 @@ import {
 import { SPLAT_MODEL_TRANSFORM } from '../renderers/modelTransforms.js';
 import { createSplatRenderer } from '../renderers/SplatModelRenderer.js';
 
-const DEFAULT_MODEL_URL = '/Open3d.ply';
+const DEFAULT_MODEL_URL = '/Open3d2.ply';
 const NAV_CORRIDOR_RADIUS = 0.8;
 const HUMAN_EYE_HEIGHT_RATIO = 0.025;
 const MIN_HUMAN_EYE_HEIGHT = 0.08;
@@ -136,7 +136,12 @@ export default function Viewer3D({
           if (fallbackUrl) {
             console.warn('Failed to load selected 3DGS model. Falling back to default model.', error);
             return splatRenderer.loadSplatModel(fallbackUrl, SPLAT_MODEL_TRANSFORM)
-              .then(() => setStatus('ready'));
+              .then(() => setStatus('ready'))
+              .catch((fallbackError) => {
+                console.error('Failed to load fallback 3DGS model.', fallbackError);
+                setStatus('error');
+                return null;
+              });
           }
           console.error('Failed to load 3DGS splat model.', error);
           setStatus('error');
@@ -379,7 +384,12 @@ export default function Viewer3D({
           if (fallbackUrl) {
             console.warn('Failed to load selected 3DGS model. Falling back to default model.', error);
             return splatRendererRef.current.loadSplatModel(fallbackUrl, SPLAT_MODEL_TRANSFORM)
-              .then(() => setStatus('ready'));
+              .then(() => setStatus('ready'))
+              .catch((fallbackError) => {
+                console.error('Failed to load fallback 3DGS model.', fallbackError);
+                setStatus('error');
+                return null;
+              });
           }
           console.error('Failed to load 3DGS splat model.', error);
           setStatus('error');

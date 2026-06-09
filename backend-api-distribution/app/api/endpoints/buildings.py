@@ -6,6 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.building import Building, Floor, Space
+from app.models.navigation import NavigationGraph, SpaceNavigationGraph
+from app.models.processing import ProcessingJob
+from app.models.splat import DoorSplat
 from app.schemas.building import (
     BuildingCreate,
     BuildingResponse,
@@ -70,6 +73,14 @@ def delete_building(building_id: int, db: Session = Depends(get_db)):
     building = db.query(Building).filter(Building.id == building_id).first()
     if not building:
         raise HTTPException(status_code=404, detail="Building not found")
+    floor_ids = [
+        floor_id
+        for (floor_id,) in db.query(Floor.id).filter(Floor.building_id == building_id).all()
+    ]
+    _delete_floor_dependents(db, floor_ids)
+    db.query(ProcessingJob).filter(ProcessingJob.building_id == building_id).delete(
+        synchronize_session=False
+    )
     db.delete(building)
     db.commit()
     return {"detail": "Deleted"}
@@ -118,6 +129,7 @@ def delete_floor(floor_id: int, db: Session = Depends(get_db)):
     floor = db.query(Floor).filter(Floor.id == floor_id).first()
     if not floor:
         raise HTTPException(status_code=404, detail="Floor not found")
+    _delete_floor_dependents(db, [floor_id])
     db.delete(floor)
     db.commit()
     return {"detail": "Deleted"}
@@ -219,6 +231,9 @@ def delete_space(space_id: int, db: Session = Depends(get_db)):
     space = db.query(Space).filter(Space.id == space_id).first()
     if not space:
         raise HTTPException(status_code=404, detail="Space not found")
+    db.query(SpaceNavigationGraph).filter(SpaceNavigationGraph.space_id == space_id).delete(
+        synchronize_session=False
+    )
     db.delete(space)
     db.commit()
     return {"detail": "Deleted"}
@@ -296,6 +311,28 @@ def _upload_ply_pair_or_error(file: UploadFile, original_prefix: str, editor_pre
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _delete_floor_dependents(db: Session, floor_ids: list[int]) -> None:
+    if not floor_ids:
+        return
+    space_ids = [
+        space_id
+        for (space_id,) in db.query(Space.id).filter(Space.floor_id.in_(floor_ids)).all()
+    ]
+    if space_ids:
+        db.query(SpaceNavigationGraph).filter(
+            SpaceNavigationGraph.space_id.in_(space_ids)
+        ).delete(synchronize_session=False)
+    db.query(DoorSplat).filter(DoorSplat.floor_id.in_(floor_ids)).delete(
+        synchronize_session=False
+    )
+    db.query(NavigationGraph).filter(NavigationGraph.floor_id.in_(floor_ids)).delete(
+        synchronize_session=False
+    )
+    db.query(ProcessingJob).filter(ProcessingJob.floor_id.in_(floor_ids)).delete(
+        synchronize_session=False
+    )
 
 
 def _stream_ply_or_error(object_key: str | None, filename: str):
