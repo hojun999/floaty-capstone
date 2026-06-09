@@ -190,7 +190,7 @@ def _upload_floor_pair_or_error(file: UploadFile, original_prefix: str, editor_p
     try:
         file.file.seek(0)
         source = file.file.read()
-        editor_source = create_editor_cut_ply_bytes(source, cut_ratio=0.1)
+        editor_source = create_editor_cut_ply_bytes(source, cut_ratio=0.2)
         upload = upload_ply_bytes_to_r2(
             source,
             original_prefix,

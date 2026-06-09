@@ -42,7 +42,7 @@ const READERS = {
 
 const DEFAULT_INPUT = 'public/Open3d.ply';
 const DEFAULT_ROTATION_X_DEG = -90;
-const DEFAULT_CUT_RATIO = 0.1;
+const DEFAULT_CUT_RATIO = 0.2;
 
 const parseArgs = () => {
   const args = process.argv.slice(2);

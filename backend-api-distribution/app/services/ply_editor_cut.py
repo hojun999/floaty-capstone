@@ -30,7 +30,7 @@ class PlyCutError(ValueError):
 def create_editor_cut_ply_bytes(
     source: bytes,
     *,
-    cut_ratio: float = 0.1,
+    cut_ratio: float = 0.2,
     cut_y: float | None = None,
     rotation_x_deg: float = -90.0,
 ) -> bytes:
