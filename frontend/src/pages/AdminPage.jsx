@@ -1309,7 +1309,6 @@ const NAV_ITEMS = [
   { key: 'upload',    label: '영상 업로드', icon: 'upload'    },
   { key: 'models',    label: '모델 관리',  icon: 'cube'      },
   // { key: 'floorplan', label: '도면 연동',  icon: 'map' },
-  { key: 'settings',  label: '설정',       icon: 'settings'  },
 ];
 
 function Sidebar({ current, onNavigate, onExit }) {
@@ -1430,7 +1429,6 @@ export default function AdminPage({ onExit, onOpenEditor }) {
       case 'upload':    return <UploadWizard onCompleted={handleUploadCompleted} />;
       case 'models':    return <ModelManager onNavigate={setPage} />;
       // case 'floorplan': return <FloorPlanLinker />;
-      case 'settings':  return <SettingsPage />;
       default:          return <Dashboard onNavigate={setPage} />;
     }
   };
