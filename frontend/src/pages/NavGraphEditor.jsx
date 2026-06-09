@@ -4,7 +4,14 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import { MODEL_ROTATION_X, SPLAT_MODEL_TRANSFORM } from '../renderers/modelTransforms.js';
 import { createSplatRenderer } from '../renderers/SplatModelRenderer.js';
-import { API_BASE, fetchSpaces, floorPlyFileUrl, spacePlyFileUrl } from '../utils/api.js';
+import {
+  API_BASE,
+  fetchSpaces,
+  floorEditorPlyFileUrl,
+  floorPlyFileUrl,
+  spaceEditorPlyFileUrl,
+  spacePlyFileUrl,
+} from '../utils/api.js';
 
 const API = API_BASE;
 const EDITOR_MOVE_SPEED_FACTOR = 0.006;
@@ -29,6 +36,13 @@ const getTargetPlyFileUrl = (targetType, targetId) => {
   return targetType === 'space'
     ? spacePlyFileUrl(targetId)
     : floorPlyFileUrl(targetId);
+};
+
+const getTargetEditorPlyFileUrl = (targetType, targetId) => {
+  if (!targetId) return null;
+  return targetType === 'space'
+    ? spaceEditorPlyFileUrl(targetId)
+    : floorEditorPlyFileUrl(targetId);
 };
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
@@ -66,6 +80,10 @@ const getLocalFloorModelUrls = (floor) => {
   return [`${base}/model`, `${base}/model.ply`];
 };
 
+const getLocalFloorEditorModelUrls = (floor) => (
+  getLocalFloorModelUrls(floor).map(getEditorCutModelUrl)
+);
+
 const isUsableModelResponse = (response) => {
   if (!response.ok) return false;
   const contentType = response.headers.get('content-type') || '';
@@ -83,17 +101,6 @@ const pickFirstExistingUrl = async (urls) => {
     } catch {}
   }
   return DEFAULT_MODEL_URL;
-};
-
-const pickEditorModelUrl = async (modelUrl) => {
-  const editorUrl = getEditorCutModelUrl(modelUrl);
-  if (!editorUrl || editorUrl === modelUrl) return modelUrl;
-  try {
-    const response = await fetch(editorUrl, { method: 'HEAD' });
-    return isUsableModelResponse(response) ? editorUrl : modelUrl;
-  } catch {
-    return modelUrl;
-  }
 };
 
 // ─── 기즈모 화살표 메시 생성 ─────────────────────────────────────────────────
@@ -760,7 +767,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
     });
 
     const loadModel = async (modelUrl) => {
-      const editorModelUrl = await pickEditorModelUrl(modelUrl || DEFAULT_MODEL_URL);
+      const editorModelUrl = modelUrl || DEFAULT_MODEL_URL;
       try {
         await loadPlyBounds(editorModelUrl);
       } catch (error) {
@@ -837,8 +844,17 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
       fetch(detailUrl)
         .then(r => r.ok ? r.json() : null)
         .then(async (target) => {
+          const originalModelUrl = getTargetPlyFileUrl(graphTargetType, graphTargetId);
+          const editorApiUrl = target?.editor_splat_path || target?.editor_object_key
+            ? getTargetEditorPlyFileUrl(graphTargetType, graphTargetId)
+            : null;
           const modelUrl = await pickFirstExistingUrl([
-            getTargetPlyFileUrl(graphTargetType, graphTargetId),
+            target?.editor_splat_path,
+            editorApiUrl,
+            originalModelUrl ? getEditorCutModelUrl(originalModelUrl) : null,
+            target?.splat_path ? getEditorCutModelUrl(target.splat_path) : null,
+            ...(graphTargetType === 'floor' ? getLocalFloorEditorModelUrls(target) : []),
+            originalModelUrl,
             target?.splat_path,
             ...(graphTargetType === 'floor' ? getLocalFloorModelUrls(target) : []),
             DEFAULT_MODEL_URL,
@@ -861,6 +877,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
         });
     } else {
       pickFirstExistingUrl([
+        getEditorCutModelUrl(DEFAULT_MODEL_URL),
         DEFAULT_MODEL_URL,
       ]).then(loadModel);
     }

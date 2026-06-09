@@ -10,7 +10,8 @@ from app.models.navigation import NavigationGraph
 from app.models.splat import DoorSplat
 from app.schemas.navigation import GraphPayload
 from app.schemas.splat import DoorSplatResponse, FloorSplatResponse
-from app.services.r2_storage import upload_ply_to_r2
+from app.services.ply_editor_cut import PlyCutError, create_editor_cut_ply_bytes
+from app.services.r2_storage import upload_ply_bytes_to_r2, upload_ply_to_r2
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -27,9 +28,15 @@ def upload_floor_splat(
     db: Session = Depends(get_db),
 ):
     floor = _get_floor_for_building(db, building_id, floor_id)
-    upload = _upload_or_error(file, f"buildings/{building_id}/floors/{floor_id}")
+    upload, editor_upload = _upload_floor_pair_or_error(
+        file,
+        f"buildings/{building_id}/floors/{floor_id}",
+        f"buildings/{building_id}/floors/{floor_id}/editor",
+    )
 
     floor.splat_path = upload.url
+    floor.editor_splat_path = editor_upload.url
+    floor.editor_object_key = editor_upload.object_key
     floor.status = "completed"
     db.commit()
     db.refresh(floor)
@@ -179,6 +186,29 @@ def _upload_or_error(file: UploadFile, prefix: str):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+def _upload_floor_pair_or_error(file: UploadFile, original_prefix: str, editor_prefix: str):
+    try:
+        file.file.seek(0)
+        source = file.file.read()
+        editor_source = create_editor_cut_ply_bytes(source, cut_ratio=0.1)
+        upload = upload_ply_bytes_to_r2(
+            source,
+            original_prefix,
+            original_filename=file.filename,
+        )
+        editor_upload = upload_ply_bytes_to_r2(
+            editor_source,
+            editor_prefix,
+            original_filename=file.filename,
+        )
+        return upload, editor_upload
+    except (ValueError, PlyCutError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        logger.exception("Floor splat upload failed for prefix=%s filename=%s", original_prefix, file.filename)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 def _floor_splat_response(floor: Floor) -> FloorSplatResponse:
     return FloorSplatResponse(
         building_id=floor.building_id,
@@ -186,6 +216,8 @@ def _floor_splat_response(floor: Floor) -> FloorSplatResponse:
         floor_number=floor.floor_number,
         floor_name=floor.floor_name,
         splat_path=floor.splat_path,
+        editor_splat_path=floor.editor_splat_path,
+        editor_object_key=floor.editor_object_key,
         status=floor.status,
     )
 

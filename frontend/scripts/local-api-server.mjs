@@ -118,6 +118,20 @@ async function ensureEditorCutModel(buildingId, floorId) {
   return null;
 }
 
+function publicModelUrlFromPath(filePath) {
+  if (!filePath) return null;
+  const relative = path.relative(publicDir, filePath).replace(/\\/g, '/');
+  return `/${relative}`;
+}
+
+async function refreshFloorEditorModel(floor) {
+  if (!floor?.building_id || !floor?.id) return floor;
+  const editorPath = await ensureEditorCutModel(floor.building_id, floor.id);
+  floor.editor_splat_path = publicModelUrlFromPath(editorPath);
+  floor.editor_object_key = floor.editor_splat_path;
+  return floor;
+}
+
 async function loadData() {
   try {
     return JSON.parse(await readFile(dataPath, 'utf8'));
@@ -264,10 +278,14 @@ const server = http.createServer(async (req, res) => {
           floor_name: body.floor_name || `${body.floor_number}층`,
           floor_plan_path: body.floor_plan_path || null,
           splat_path: null,
+          editor_splat_path: null,
+          editor_object_key: null,
           status: body.status || 'queued',
           created_at: now(),
         };
         floor.splat_path = `/models/buildings/${floor.building_id}/floors/${floor.id}/model`;
+        floor.editor_splat_path = `/models/buildings/${floor.building_id}/floors/${floor.id}/model_editor_cut`;
+        floor.editor_object_key = floor.editor_splat_path;
         data.floors.push(floor);
         data.graphs[floor.id] = { nodes: [], edges: [] };
         await ensureModelDir(floor.building_id, floor.id);
@@ -280,16 +298,17 @@ const server = http.createServer(async (req, res) => {
       if (!floor) return sendJson(res, 404, { detail: 'Floor not found' });
       if (req.method === 'GET') {
         await ensureModelDir(floor.building_id, floor.id);
-        await ensureEditorCutModel(floor.building_id, floor.id).catch((error) => {
+        await refreshFloorEditorModel(floor).catch((error) => {
           console.warn(`Could not create editor cut model for floor ${floor.id}: ${error.message}`);
         });
+        await saveData(data);
         return sendJson(res, 200, floor);
       }
       if (req.method === 'PATCH') {
         Object.assign(floor, await readBody(req));
         if (!floor.splat_path) floor.splat_path = `/models/buildings/${floor.building_id}/floors/${floor.id}/model`;
         await ensureModelDir(floor.building_id, floor.id);
-        await ensureEditorCutModel(floor.building_id, floor.id).catch((error) => {
+        await refreshFloorEditorModel(floor).catch((error) => {
           console.warn(`Could not create editor cut model for floor ${floor.id}: ${error.message}`);
         });
         await saveData(data);

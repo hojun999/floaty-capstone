@@ -9,6 +9,8 @@ class FloorSplatResponse(BaseModel):
     floor_number: int
     floor_name: str | None
     splat_path: str | None
+    editor_splat_path: str | None = None
+    editor_object_key: str | None = None
     status: str
 
 

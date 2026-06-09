@@ -20,8 +20,9 @@ from app.schemas.building import (
 from app.services.r2_storage import (
     get_ply_object_from_r2,
     object_key_from_public_url,
-    upload_ply_to_r2,
+    upload_ply_bytes_to_r2,
 )
+from app.services.ply_editor_cut import PlyCutError, create_editor_cut_ply_bytes
 
 router = APIRouter()
 
@@ -132,11 +133,14 @@ def upload_floor_ply(
     if not floor:
         raise HTTPException(status_code=404, detail="Floor not found")
 
-    upload = _upload_ply_or_error(
+    upload, editor_upload = _upload_ply_pair_or_error(
         ply_file,
         f"buildings/{floor.building_id}/floors/{floor.id}",
+        f"buildings/{floor.building_id}/floors/{floor.id}/editor",
     )
     floor.splat_path = upload.url
+    floor.editor_splat_path = editor_upload.url
+    floor.editor_object_key = editor_upload.object_key
     floor.status = "completed"
     db.commit()
     db.refresh(floor)
@@ -151,6 +155,17 @@ def get_floor_ply_file(floor_id: int, db: Session = Depends(get_db)):
     return _stream_ply_or_error(
         object_key_from_public_url(floor.splat_path),
         f"floor-{floor.id}.ply",
+    )
+
+
+@router.get("/floors/{floor_id}/editor-ply-file")
+def get_floor_editor_ply_file(floor_id: int, db: Session = Depends(get_db)):
+    floor = db.query(Floor).filter(Floor.id == floor_id).first()
+    if not floor:
+        raise HTTPException(status_code=404, detail="Floor not found")
+    return _stream_ply_or_error(
+        floor.editor_object_key or object_key_from_public_url(floor.editor_splat_path),
+        f"floor-{floor.id}-editor.ply",
     )
 
 
@@ -223,11 +238,14 @@ def upload_space_ply(
     if not floor:
         raise HTTPException(status_code=404, detail="Floor not found")
 
-    upload = _upload_ply_or_error(
+    upload, editor_upload = _upload_ply_pair_or_error(
         ply_file,
         f"buildings/{floor.building_id}/floors/{floor.id}/spaces/{space.id}",
+        f"buildings/{floor.building_id}/floors/{floor.id}/spaces/{space.id}/editor",
     )
     space.splat_path = upload.url
+    space.editor_splat_path = editor_upload.url
+    space.editor_object_key = editor_upload.object_key
     space.object_key = upload.object_key
     space.original_filename = upload.original_filename
     space.status = "completed"
@@ -247,10 +265,34 @@ def get_space_ply_file(space_id: int, db: Session = Depends(get_db)):
     )
 
 
-def _upload_ply_or_error(file: UploadFile, prefix: str):
+@router.get("/spaces/{space_id}/editor-ply-file")
+def get_space_editor_ply_file(space_id: int, db: Session = Depends(get_db)):
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
+        raise HTTPException(status_code=404, detail="Space not found")
+    return _stream_ply_or_error(
+        space.editor_object_key or object_key_from_public_url(space.editor_splat_path),
+        f"space-{space.id}-editor.ply",
+    )
+
+
+def _upload_ply_pair_or_error(file: UploadFile, original_prefix: str, editor_prefix: str):
     try:
-        return upload_ply_to_r2(file, prefix)
-    except ValueError as exc:
+        file.file.seek(0)
+        source = file.file.read()
+        editor_source = create_editor_cut_ply_bytes(source, cut_ratio=0.1)
+        original_upload = upload_ply_bytes_to_r2(
+            source,
+            original_prefix,
+            original_filename=file.filename,
+        )
+        editor_upload = upload_ply_bytes_to_r2(
+            editor_source,
+            editor_prefix,
+            original_filename=file.filename,
+        )
+        return original_upload, editor_upload
+    except (ValueError, PlyCutError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

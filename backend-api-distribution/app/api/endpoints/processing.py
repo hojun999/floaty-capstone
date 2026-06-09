@@ -114,6 +114,8 @@ def complete_processing_job(
     if floor:
         floor.status = "completed"
         floor.splat_path = payload.ply_url
+        floor.editor_splat_path = None
+        floor.editor_object_key = None
 
     db.commit()
     db.refresh(job)

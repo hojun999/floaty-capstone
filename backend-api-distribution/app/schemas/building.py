@@ -45,6 +45,8 @@ class FloorResponse(BaseModel):
     floor_name: Optional[str]
     floor_plan_path: Optional[str]
     splat_path: Optional[str]
+    editor_splat_path: Optional[str] = None
+    editor_object_key: Optional[str] = None
     status: str
     created_at: datetime
 
@@ -70,6 +72,8 @@ class SpaceResponse(BaseModel):
     name: str
     space_type: Optional[str]
     splat_path: Optional[str]
+    editor_splat_path: Optional[str] = None
+    editor_object_key: Optional[str] = None
     object_key: Optional[str]
     original_filename: Optional[str]
     status: str

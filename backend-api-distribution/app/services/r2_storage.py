@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from io import BytesIO
 import logging
 from uuid import uuid4
 
@@ -31,6 +32,21 @@ class R2ObjectResult:
 
 def upload_ply_to_r2(file: UploadFile, prefix: str) -> R2UploadResult:
     _validate_ply_file(file)
+    file.file.seek(0)
+    return upload_ply_bytes_to_r2(
+        file.file,
+        prefix,
+        original_filename=file.filename,
+    )
+
+
+def upload_ply_bytes_to_r2(
+    data: bytes | BytesIO,
+    prefix: str,
+    *,
+    original_filename: str | None = None,
+) -> R2UploadResult:
+    _validate_ply_filename(original_filename)
     account_id = get_r2_account_id()
     access_key_id = get_r2_access_key_id()
     secret_access_key = get_r2_secret_access_key()
@@ -49,8 +65,9 @@ def upload_ply_to_r2(file: UploadFile, prefix: str) -> R2UploadResult:
         raise RuntimeError("boto3 is not installed. Install project dependencies.") from exc
 
     object_key = _build_object_key(prefix)
+    body = BytesIO(data) if isinstance(data, bytes) else data
     try:
-        file.file.seek(0)
+        body.seek(0)
         logger.info(
             "Uploading splat to R2 bucket=%r bucket_len=%s object_key=%s",
             bucket_name,
@@ -67,7 +84,7 @@ def upload_ply_to_r2(file: UploadFile, prefix: str) -> R2UploadResult:
         client.put_object(
             Bucket=bucket_name,
             Key=object_key,
-            Body=file.file,
+            Body=body,
             ContentType="application/octet-stream",
         )
     except Exception as exc:
@@ -77,7 +94,7 @@ def upload_ply_to_r2(file: UploadFile, prefix: str) -> R2UploadResult:
     return R2UploadResult(
         object_key=object_key,
         url=f"{public_base_url.rstrip('/')}/{object_key}",
-        original_filename=file.filename,
+        original_filename=original_filename,
     )
 
 
@@ -136,7 +153,11 @@ def object_key_from_public_url(url: str | None) -> str | None:
 
 
 def _validate_ply_file(file: UploadFile) -> None:
-    filename = file.filename or ""
+    _validate_ply_filename(file.filename)
+
+
+def _validate_ply_filename(filename: str | None) -> None:
+    filename = filename or ""
     if not filename.lower().endswith(".ply"):
         raise ValueError("Only .ply files are allowed")
 

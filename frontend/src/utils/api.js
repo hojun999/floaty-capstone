@@ -52,6 +52,8 @@ export const uploadSpacePly = (spaceId, file) => {
 
 export const floorPlyFileUrl = (floorId) => `${API_BASE}/api/floors/${floorId}/ply-file`;
 export const spacePlyFileUrl = (spaceId) => `${API_BASE}/api/spaces/${spaceId}/ply-file`;
+export const floorEditorPlyFileUrl = (floorId) => `${API_BASE}/api/floors/${floorId}/editor-ply-file`;
+export const spaceEditorPlyFileUrl = (spaceId) => `${API_BASE}/api/spaces/${spaceId}/editor-ply-file`;
 
 export const createProcessingJob = (formData) => api.post('/api/processing/jobs', formData).then(r => r.data);
 export const fetchJobStatus = (jobId) => api.get(`/api/processing/jobs/${jobId}/status`).then(r => r.data);

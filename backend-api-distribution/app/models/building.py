@@ -26,6 +26,8 @@ class Floor(Base):
     floor_name = Column(String)
     floor_plan_path = Column(String)
     splat_path = Column(String)
+    editor_splat_path = Column(String)
+    editor_object_key = Column(String)
     status = Column(String, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -41,6 +43,8 @@ class Space(Base):
     name = Column(String, nullable=False)
     space_type = Column(String, default="room")
     splat_path = Column(String)
+    editor_splat_path = Column(String)
+    editor_object_key = Column(String)
     object_key = Column(String)
     original_filename = Column(String)
     status = Column(String, default="pending")
