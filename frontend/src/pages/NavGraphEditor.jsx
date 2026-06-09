@@ -849,8 +849,8 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
             ? getTargetEditorPlyFileUrl(graphTargetType, graphTargetId)
             : null;
           const modelUrl = await pickFirstExistingUrl([
-            target?.editor_splat_path,
             editorApiUrl,
+            target?.editor_splat_path,
             originalModelUrl ? getEditorCutModelUrl(originalModelUrl) : null,
             target?.splat_path ? getEditorCutModelUrl(target.splat_path) : null,
             ...(graphTargetType === 'floor' ? getLocalFloorEditorModelUrls(target) : []),
