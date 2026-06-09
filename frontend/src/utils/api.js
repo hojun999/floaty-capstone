@@ -4,6 +4,19 @@ export const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_AP
 
 const api = axios.create({ baseURL: API_BASE, timeout: 30000 });
 
+export const describeApiError = (error, fallback = 'Request failed.') => {
+  const method = error?.config?.method?.toUpperCase?.() || 'REQUEST';
+  const url = `${error?.config?.baseURL || ''}${error?.config?.url || ''}` || 'unknown URL';
+  if (error?.response) {
+    const detail = error.response.data?.detail || error.response.statusText || fallback;
+    return `${fallback} (${method} ${url} -> ${error.response.status}: ${detail})`;
+  }
+  if (error?.request) {
+    return `${fallback} (${method} ${url} -> no response. Check API URL/CORS/network.)`;
+  }
+  return `${fallback} (${error?.message || 'unknown error'})`;
+};
+
 export const fetchBuildings = () => api.get('/api/buildings').then(r => r.data);
 export const createBuilding = (body) => api.post('/api/buildings', body).then(r => r.data);
 export const fetchBuilding = (id) => api.get(`/api/buildings/${id}`).then(r => r.data);

@@ -7,6 +7,7 @@ import {
   deleteBuilding,
   deleteFloor,
   deleteSpace,
+  describeApiError,
   fetchBuildings,
   fetchFloors,
   fetchSpaces,
@@ -872,7 +873,7 @@ function BuildingManager({ onOpenFloors }) {
       if (editId) await updateBuilding(editId, body);
       else await createBuilding(body);
       setShowForm(false); setError(''); load();
-    } catch { setError('저장에 실패했습니다.'); }
+    } catch (error) { setError(describeApiError(error, '저장에 실패했습니다.')); }
   };
 
   const handleDelete = async (id, name) => {
