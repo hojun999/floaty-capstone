@@ -3,7 +3,7 @@ import Viewer3D from './components/Viewer3D';
 import SearchBar from './components/SearchBar';
 import RoutePanel from './components/RoutePanel';
 import InfoCards from './components/InfoCards';
-import { fetchBuildings, fetchFloor, fetchFloors, fetchNavGraph, fetchNavPath } from './utils/api';
+import { fetchBuildings, fetchFloor, fetchFloors, fetchNavGraph, fetchNavPath, fetchSpace } from './utils/api';
 import NAV_GRAPH from './data/navGraph.json';
 
 const SEARCHABLE_NODE_TYPES = new Set(['start', 'destination', 'door']);
@@ -70,6 +70,7 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
   const [selectedFloorId,    setSelectedFloorId]    = useState(null);
   const [selectedFloor,      setSelectedFloor]      = useState(null);
   const [selectedModelUrl,   setSelectedModelUrl]   = useState(undefined);
+  const [activeSpaceModel,   setActiveSpaceModel]   = useState(null);
   const [floorNavGraph,      setFloorNavGraph]      = useState(null);
   const activeNavGraph = selectedFloorId ? (floorNavGraph || baseNavGraph) : baseNavGraph;
   const selectedBuilding = buildings.find(b => b.id === selectedBuildingId) || null;
@@ -95,6 +96,7 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
   useEffect(() => {
     setSelectedFloor(null);
     setSelectedModelUrl(undefined);
+    setActiveSpaceModel(null);
     setFloorNavGraph(null);
     if (!selectedBuildingId) { setFloors([]); setSelectedFloorId(null); return; }
     fetchFloors(selectedBuildingId)
@@ -104,6 +106,7 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
 
   useEffect(() => {
     setSelectedFloor(null);
+    setActiveSpaceModel(null);
     setFloorNavGraph(null);
     setSelectedStart(null);
     setSelectedDest(null);
@@ -157,6 +160,24 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
 
     return () => { cancelled = true; };
   }, [selectedBuilding, selectedFloor]);
+
+  const handleNodeActivate = useCallback((node) => {
+    const spaceId = node?.target_space_id;
+    if (!spaceId) return;
+    fetchSpace(spaceId)
+      .then((space) => {
+        if (!space?.splat_path) {
+          window.alert('연결된 공간에 등록된 PLY 모델이 없습니다.');
+          return;
+        }
+        setActiveSpaceModel({
+          id: space.id,
+          name: space.name || node.name || `Space ${space.id}`,
+          splat_path: space.splat_path,
+        });
+      })
+      .catch(() => window.alert('연결된 공간 정보를 불러오지 못했습니다.'));
+  }, []);
 
   useEffect(() => {
     if (!initialNavigation?.startNodeId) return;
@@ -319,17 +340,39 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
 
       <div className="navigation-workspace">
         {/* 뷰어 */}
-        <div className="viewer-grid single">
+          <div className="viewer-grid single" style={{ position: 'relative' }}>
           {viewMode === '3d' && (
             <Viewer3D
-              key={`${selectedFloorId || 'local'}:${selectedModelUrl || 'default'}`}
+              key={`${selectedFloorId || 'local'}:${activeSpaceModel?.splat_path || selectedModelUrl || 'default'}`}
               selectedDest={selectedDest}
               routePoints={routePath}
               navGraph={activeNavGraph}
               navCommand={navCommand}
               initialViewMode={initialNavigation?.startNodeId ? 'pedestrian' : 'orbit'}
-              modelUrl={selectedModelUrl}
+              modelUrl={activeSpaceModel?.splat_path || selectedModelUrl}
+              onNodeActivate={handleNodeActivate}
             />
+          )}
+          {activeSpaceModel && (
+            <button
+              type="button"
+              onClick={() => setActiveSpaceModel(null)}
+              style={{
+                position: 'absolute',
+                top: 16,
+                right: 16,
+                zIndex: 4,
+                padding: '8px 12px',
+                borderRadius: 6,
+                border: '1px solid rgba(255,255,255,0.24)',
+                background: 'rgba(12,12,12,0.82)',
+                color: '#fff',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              층 모델로 돌아가기
+            </button>
           )}
         </div>
 

@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import { MODEL_ROTATION_X, SPLAT_MODEL_TRANSFORM } from '../renderers/modelTransforms.js';
 import { createSplatRenderer } from '../renderers/SplatModelRenderer.js';
-import { API_BASE } from '../utils/api.js';
+import { API_BASE, fetchSpaces } from '../utils/api.js';
 
 const API = API_BASE;
 const EDITOR_MOVE_SPEED_FACTOR = 0.006;
@@ -115,11 +115,22 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
   const [edges,      setEdges]      = useState([]);
   const [selId,      setSelId]      = useState(null);
   const [addMode,    setAddMode]    = useState(false);
-  const [form,       setForm]       = useState({ name: '', type: 'waypoint', x: 0, y: 0, z: 0 });
+  const [form,       setForm]       = useState({ name: '', type: 'waypoint', x: 0, y: 0, z: 0, target_space_id: '' });
+  const [spaces,     setSpaces]     = useState([]);
   const [saveStatus, setSaveStatus] = useState(''); // '' | 'saving' | 'saved' | 'error'
   const [showGrid, setShowGrid] = useState(true);
 
   const showGridRef = useRef(true);
+
+  useEffect(() => {
+    if (graphTargetType !== 'floor' || !graphTargetId) {
+      setSpaces([]);
+      return;
+    }
+    fetchSpaces(graphTargetId)
+      .then(setSpaces)
+      .catch(() => setSpaces([]));
+  }, [graphTargetType, graphTargetId]);
 
   // ─── Three.js 초기화 ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -318,7 +329,14 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
         applyNodeColor(id, true);
         const node = s.gNodes.find(n => n.id === id);
         if (node) {
-          setForm({ name: node.name, type: node.type, x: node.x, y: node.y, z: node.z });
+          setForm({
+            name: node.name,
+            type: node.type,
+            x: node.x,
+            y: node.y,
+            z: node.z,
+            target_space_id: node.target_space_id || '',
+          });
           gizmo.position.set(node.x, node.y, node.z);
           gizmo.visible = true;
         }
@@ -850,6 +868,8 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
     Object.assign(node, {
       name: form.name, type: form.type,
       x: Number(form.x), y: Number(form.y), z: Number(form.z),
+      target_type: form.target_space_id ? 'space' : null,
+      target_space_id: form.target_space_id ? Number(form.target_space_id) : null,
     });
     const mesh = s.meshes.find(m => m.userData.nodeId === selId);
     if (mesh) {
@@ -889,9 +909,11 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
     const s = threeRef.current;
     if (!s) return;
     const data = {
-      nodes: s.gNodes.map(({ id, name, type, x, y, z }) => ({
+      nodes: s.gNodes.map(({ id, name, type, x, y, z, target_type, target_space_id }) => ({
         id, name, type,
         x: +x.toFixed(4), y: +y.toFixed(4), z: +z.toFixed(4),
+        target_type: target_space_id ? (target_type || 'space') : null,
+        target_space_id: target_space_id || null,
       })),
       edges: s.gEdges.map(({ id, from, to }) => ({ id, from, to })),
     };
@@ -980,6 +1002,23 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
                   ))}
                 </select>
               </div>
+              {graphTargetType === 'floor' && (
+                <div className="navgraph-row">
+                  <label>연결 공간</label>
+                  <select
+                    className="navgraph-select"
+                    value={form.target_space_id || ''}
+                    onChange={e => setForm(f => ({ ...f, target_space_id: e.target.value }))}
+                  >
+                    <option value="">없음</option>
+                    {spaces.map((space) => (
+                      <option key={space.id} value={space.id}>
+                        {space.name || `Space ${space.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="navgraph-row navgraph-pos-row">
                 <label>위치</label>
                 <div className="navgraph-xyz">

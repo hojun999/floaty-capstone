@@ -36,6 +36,7 @@ export default function Viewer3D({
   navCommand,
   initialViewMode = 'orbit',
   modelUrl = DEFAULT_MODEL_URL,
+  onNodeActivate,
 }) {
   const containerRef    = useRef(null);
   const threeRef        = useRef(null); // { scene, plyOffset, renderer }
@@ -611,6 +612,8 @@ export default function Viewer3D({
       );
       sphere.position.copy(toV(n));
       sphere.renderOrder = 1;
+      sphere.userData.isNavGraphNode = true;
+      sphere.userData.nodeId = n.id;
       group.add(sphere);
 
       if (LABELED_NODE_TYPES.has(n.type) && n.name) {
@@ -749,7 +752,7 @@ export default function Viewer3D({
 
     const getHits = (clientX, clientY) => {
       const camera = cameraRef.current;
-      if (!camera || !svArrowsRef.current) return [];
+      if (!camera) return [];
       const rect = canvas.getBoundingClientRect();
       const mouse = new THREE.Vector2(
         ((clientX - rect.left) / rect.width) * 2 - 1,
@@ -758,7 +761,8 @@ export default function Viewer3D({
       const rc = new THREE.Raycaster();
       rc.setFromCamera(mouse, camera);
       const targets = [];
-      svArrowsRef.current.traverse(o => { if (o.userData.isSvArrow) targets.push(o); });
+      svArrowsRef.current?.traverse(o => { if (o.userData.isSvArrow) targets.push(o); });
+      navGraphRef.current?.traverse(o => { if (o.userData.isNavGraphNode) targets.push(o); });
       return rc.intersectObjects(targets);
     };
 
@@ -783,6 +787,7 @@ export default function Viewer3D({
       const nodeMap = Object.fromEntries(ng.nodes.map(n => [n.id, n]));
       const node = nodeMap[nodeId];
       if (!node) return;
+      onNodeActivate?.(node);
 
       const off = getNavOffset(t);
       const newTarget = new THREE.Vector3(node.x - off.x, node.y - off.y, node.z - off.z);
