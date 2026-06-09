@@ -34,7 +34,11 @@ def get_cors_origins() -> list[str]:
         "CORS_ORIGIN",
         "http://localhost:3000,http://127.0.0.1:3000",
     )
-    return [origin.strip() for origin in origins.split(",") if origin.strip()]
+    return [
+        origin.strip().rstrip("/")
+        for origin in origins.split(",")
+        if origin.strip()
+    ]
 
 
 def get_app_host() -> str:
