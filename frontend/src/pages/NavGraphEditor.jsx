@@ -69,6 +69,7 @@ const pickFirstExistingUrl = async (urls) => {
   const candidates = urls.filter(Boolean);
   for (const url of candidates) {
     if (url === DEFAULT_MODEL_URL) return url;
+    if (/^https?:\/\//i.test(url)) return url;
     try {
       const response = await fetch(url, { method: 'HEAD' });
       if (isUsableModelResponse(response)) return url;
@@ -811,7 +812,10 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
           orbit.update();
         },
         undefined,
-        () => {},  // PLY 로드 실패 시 그냥 그리드만 사용
+        (error) => {
+          console.warn('Could not load PLY in graph editor.', plyUrl, error);
+          if (canFallbackToDefault && plyUrl !== DEFAULT_MODEL_URL) loadPly(DEFAULT_MODEL_URL, false);
+        },
       );
     };
 
@@ -820,12 +824,15 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
       const detailUrl = graphTargetType === 'space'
         ? `${API}/api/spaces/${graphTargetId}`
         : `${API}/api/floors/${graphTargetId}`;
+      const graphUrl = graphTargetType === 'space'
+        ? `${API}/api/navigation/spaces/${graphTargetId}/graph`
+        : `${API}/api/navigation/floors/${graphTargetId}/graph`;
       fetch(detailUrl)
         .then(r => r.ok ? r.json() : null)
-        .then(async (floor) => {
+        .then(async (target) => {
           const modelUrl = await pickFirstExistingUrl([
-            ...getLocalFloorModelUrls(floor),
-            floor?.splat_path,
+            target?.splat_path,
+            ...(graphTargetType === 'floor' ? getLocalFloorModelUrls(target) : []),
             DEFAULT_MODEL_URL,
           ]);
           loadModel(modelUrl);
@@ -835,6 +842,14 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
             DEFAULT_MODEL_URL,
           ]);
           loadModel(modelUrl);
+        });
+      fetch(graphUrl)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.graph) loadGraphData(data.graph);
+        })
+        .catch(error => {
+          console.warn('Could not load saved graph in graph editor.', graphUrl, error);
         });
     } else {
       pickFirstExistingUrl([
