@@ -1,6 +1,11 @@
 import axios from 'axios';
 
-export const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || '';
+const DEFAULT_API_BASE = 'https://port-0-floaty-capstone-mq4vuon6474fb398.sel3.cloudtype.app';
+const normalizeApiBase = (value) => String(value || '').replace(/\/+$/, '');
+
+export const API_BASE = normalizeApiBase(
+  import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE,
+);
 
 const api = axios.create({ baseURL: API_BASE, timeout: 30000 });
 
