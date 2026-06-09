@@ -7,7 +7,7 @@ import './styles/global.css';
 import './styles/admin.css';
 
 function getHash() {
-  return window.location.hash.replace('#', '');
+  return window.location.hash.replace('#', '') || 'admin';
 }
 
 function Root() {
@@ -34,11 +34,11 @@ function Root() {
     const seq = Date.now();
     setRuntimeNavGraph(graph);
     setInitialNavigation(startNode ? { startNodeId: startNode.id, seq } : null);
-    navigate('');
+    navigate('viewer');
   };
 
   if (page === 'admin') {
-    return <AdminPage onExit={() => navigate('')} onOpenEditor={openEditor} />;
+    return <AdminPage onExit={() => navigate('viewer')} onOpenEditor={openEditor} />;
   }
   if (page === 'graph-editor') {
     return (
