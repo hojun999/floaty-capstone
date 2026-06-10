@@ -8,6 +8,7 @@ export const API_BASE = normalizeApiBase(
 );
 
 const api = axios.create({ baseURL: API_BASE, timeout: 30000 });
+const PLY_UPLOAD_TIMEOUT_MS = 120000;
 
 export const describeApiError = (error, fallback = 'Request failed.') => {
   const method = error?.config?.method?.toUpperCase?.() || 'REQUEST';
@@ -36,7 +37,7 @@ export const deleteFloor = (floorId) => api.delete(`/api/floors/${floorId}`).the
 export const uploadFloorPly = (floorId, file) => {
   const formData = new FormData();
   formData.append('ply_file', file);
-  return api.post(`/api/floors/${floorId}/ply`, formData).then(r => r.data);
+  return api.post(`/api/floors/${floorId}/ply`, formData, { timeout: PLY_UPLOAD_TIMEOUT_MS }).then(r => r.data);
 };
 
 export const fetchSpaces = (floorId) => api.get('/api/spaces', { params: { floor_id: floorId } }).then(r => r.data);
@@ -47,7 +48,7 @@ export const deleteSpace = (spaceId) => api.delete(`/api/spaces/${spaceId}`).the
 export const uploadSpacePly = (spaceId, file) => {
   const formData = new FormData();
   formData.append('ply_file', file);
-  return api.post(`/api/spaces/${spaceId}/ply`, formData).then(r => r.data);
+  return api.post(`/api/spaces/${spaceId}/ply`, formData, { timeout: PLY_UPLOAD_TIMEOUT_MS }).then(r => r.data);
 };
 
 export const floorPlyFileUrl = (floorId) => `${API_BASE}/api/floors/${floorId}/ply-file`;
