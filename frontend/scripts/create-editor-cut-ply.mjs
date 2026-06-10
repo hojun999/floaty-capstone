@@ -101,7 +101,7 @@ Options:
   --input, -i       Source 3DGS PLY. Default: ${DEFAULT_INPUT}
   --output, -o      Output PLY. Default: *_editor_cut.ply
   --cut-y           Cut height in editor coordinates after rotation.
-  --cut-ratio       Auto cut height ratio above model center. Default: ${DEFAULT_CUT_RATIO}
+  --cut-ratio       Auto cut ratio from the top of the bounding box. Default: ${DEFAULT_CUT_RATIO}
   --rotation-x      X rotation in degrees used by the editor. Default: ${DEFAULT_ROTATION_X_DEG}
 `);
 };
@@ -235,7 +235,7 @@ export const createEditorCutPly = async (options) => {
     maxY = Math.max(maxY, rotated.y);
   }
 
-  const autoCutY = minY + (maxY - minY) * (0.5 + options.cutRatio);
+  const autoCutY = maxY - (maxY - minY) * options.cutRatio;
   const cutY = Number.isFinite(options.cutY) ? options.cutY : autoCutY;
   const keptVertices = [];
   let removed = 0;

@@ -65,7 +65,7 @@ def create_editor_cut_ply_bytes(
         min_y = min(min_y, rotated_y)
         max_y = max(max_y, rotated_y)
 
-    resolved_cut_y = cut_y if cut_y is not None else min_y + (max_y - min_y) * (0.5 + cut_ratio)
+    resolved_cut_y = cut_y if cut_y is not None else max_y - (max_y - min_y) * cut_ratio
     kept_vertices = []
     for index in range(vertex_count):
         offset = vertex_start + index * stride
