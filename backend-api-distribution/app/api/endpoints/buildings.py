@@ -295,7 +295,7 @@ def _upload_ply_pair_or_error(file: UploadFile, original_prefix: str, editor_pre
     try:
         file.file.seek(0)
         source = file.file.read()
-        editor_source = create_editor_cut_ply_bytes(source, cut_ratio=0.2)
+        editor_source = create_editor_cut_ply_bytes(source, cut_ratio=0.3)
         original_upload = upload_ply_bytes_to_r2(
             source,
             original_prefix,

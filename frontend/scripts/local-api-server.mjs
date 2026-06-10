@@ -109,7 +109,7 @@ async function ensureEditorCutModel(buildingId, floorId) {
       input: candidate.input,
       output: candidate.output,
       cutY: null,
-      cutRatio: 0.2,
+      cutRatio: 0.3,
       rotationXDeg: -90,
     });
     return candidate.output;
