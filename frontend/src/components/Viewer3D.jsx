@@ -528,7 +528,8 @@ export default function Viewer3D({
     const t        = threeRef.current;
     if (!camera || !controls || !t) return;
 
-    const randomNode = navGraph.nodes[Math.floor(Math.random() * navGraph.nodes.length)];
+    const randomNode = navGraph.nodes.find(node => node.type === 'start')
+      || navGraph.nodes[Math.floor(Math.random() * navGraph.nodes.length)];
     const off = getNavOffset(t);
     const pos = new THREE.Vector3(randomNode.x - off.x, randomNode.y - off.y, randomNode.z - off.z);
     const eyeH = svRef.current.eyeHeight;

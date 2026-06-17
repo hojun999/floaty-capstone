@@ -10,6 +10,8 @@ import {
   fetchNavGraph,
   fetchNavPath,
   fetchSpace,
+  fetchSpaceNavGraph,
+  fetchSpaceNavPath,
   floorPlyFileUrl,
   spacePlyFileUrl,
 } from './utils/api';
@@ -81,7 +83,8 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
   const [selectedModelUrl,   setSelectedModelUrl]   = useState(undefined);
   const [activeSpaceModel,   setActiveSpaceModel]   = useState(null);
   const [floorNavGraph,      setFloorNavGraph]      = useState(null);
-  const activeNavGraph = selectedFloorId ? (floorNavGraph || baseNavGraph) : baseNavGraph;
+  const activeNavGraph = activeSpaceModel?.graph
+    || (selectedFloorId ? (floorNavGraph || baseNavGraph) : baseNavGraph);
   const selectedBuilding = buildings.find(b => b.id === selectedBuildingId) || null;
 
   // destination 타입 노드만 보관 (waypoint 등 제외)
@@ -121,6 +124,21 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
     setSelectedDest(null);
     setRoutePath(null);
     setRouteError('');
+
+    if (activeSpaceModel?.id) {
+      const path = findPathInGraph(activeNavGraph, selectedStart.id, selectedDest.id);
+      if (path.length) { setRoutePath(path); setRouteError(''); }
+      else {
+        fetchSpaceNavPath(activeSpaceModel.id, selectedStart.id, selectedDest.id)
+          .then(data => {
+            const path = data.path ?? [];
+            if (path.length) { setRoutePath(path); setRouteError(''); }
+            else { setRoutePath(null); setRouteError('寃쎈줈瑜?李얠쓣 ???놁뒿?덈떎.'); }
+          })
+          .catch(() => setRouteError('寃쎈줈 議고쉶???ㅽ뙣?덉뒿?덈떎.'));
+      }
+      return;
+    }
 
     if (!selectedFloorId) {
       setDestinations(getSearchableNodes(baseNavGraph.nodes));
@@ -175,17 +193,33 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
   const handleNodeActivate = useCallback((node) => {
     const spaceId = node?.target_space_id;
     if (!spaceId) return;
-    fetchSpace(spaceId)
-      .then((space) => {
+    Promise.all([
+      fetchSpace(spaceId),
+      fetchSpaceNavGraph(spaceId).catch(() => null),
+    ])
+      .then(([space, graphData]) => {
         if (!space?.splat_path) {
           window.alert('연결된 공간에 등록된 PLY 모델이 없습니다.');
           return;
         }
+        const graph = graphData?.graph ?? graphData;
+        const nodes = graph?.nodes ?? [];
+        const spaceDestinations = getSearchableNodes(nodes);
+        const startNode = nodes.find(n => n.type === 'start') || spaceDestinations[0] || nodes[0] || null;
         setActiveSpaceModel({
           id: space.id,
           name: space.name || node.name || `Space ${space.id}`,
           splat_path: spacePlyFileUrl(space.id),
+          graph: nodes.length ? graph : null,
         });
+        setSelectedDest(null);
+        setRoutePath(null);
+        setRouteError('');
+        if (nodes.length) {
+          setDestinations(spaceDestinations.length ? spaceDestinations : nodes);
+          setSelectedStart(startNode);
+          if (startNode) setNavCommand({ nodeId: startNode.id, seq: Date.now() });
+        }
       })
       .catch(() => window.alert('연결된 공간 정보를 불러오지 못했습니다.'));
   }, []);
@@ -228,7 +262,7 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
         else { setRoutePath(null); setRouteError('경로를 찾을 수 없습니다.'); }
       })
       .catch(() => setRouteError('경로 조회에 실패했습니다.'));
-  }, [selectedFloorId, selectedStart, selectedDest, activeNavGraph]);
+  }, [selectedFloorId, selectedStart, selectedDest, activeNavGraph, activeSpaceModel]);
 
   // ─── 핸들러 ───────────────────────────────────────────────────────────────
 
@@ -358,7 +392,7 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
           <div className="viewer-grid single" style={{ position: 'relative' }}>
           {viewMode === '3d' && (
             <Viewer3D
-              key={`${selectedFloorId || initialNavigation?.targetId || 'local'}:${viewerModelUrl || 'default'}`}
+              key={`${activeSpaceModel?.id ? `space:${activeSpaceModel.id}` : selectedFloorId || initialNavigation?.targetId || 'local'}:${viewerModelUrl || 'default'}`}
               selectedDest={selectedDest}
               routePoints={routePath}
               navGraph={activeNavGraph}
@@ -371,7 +405,14 @@ export default function App({ onEnterAdmin, navGraph = NAV_GRAPH, initialNavigat
           {activeSpaceModel && (
             <button
               type="button"
-              onClick={() => setActiveSpaceModel(null)}
+              onClick={() => {
+                setActiveSpaceModel(null);
+                setDestinations(getSearchableNodes((floorNavGraph || baseNavGraph).nodes));
+                setSelectedStart(null);
+                setSelectedDest(null);
+                setRoutePath(null);
+                setRouteError('');
+              }}
               style={{
                 position: 'absolute',
                 top: 16,
