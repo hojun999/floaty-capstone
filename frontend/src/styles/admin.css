@@ -1494,6 +1494,42 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.navgraph-ceiling-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.navgraph-slider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.navgraph-slider-row strong {
+  color: #f8fafc;
+  font-size: 12px;
+}
+
+.navgraph-range {
+  width: 100%;
+  accent-color: #38bdf8;
+}
+
+.navgraph-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.navgraph-control-hint {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .navgraph-panel-title {
   font-size: 13px;
   font-weight: 700;

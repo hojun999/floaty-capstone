@@ -30,6 +30,7 @@ const EDITOR_AXIS_Z = 0x767676;
 const EDITOR_GRID_SIZE = 100;
 const EDITOR_GRID_DIVISIONS = 100;
 const EDITOR_GRID_BOUND_PADDING = 0.35;
+const DEFAULT_CEILING_CUT_PERCENT = 100;
 
 const getTargetPlyFileUrl = (targetType, targetId) => {
   if (!targetId) return null;
@@ -125,6 +126,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
   const threeRef   = useRef(null);
   const addModeRef = useRef(false);
   const selIdRef   = useRef(null);
+  const ceilingCutRef = useRef(DEFAULT_CEILING_CUT_PERCENT);
 
   const [nodes,      setNodes]      = useState([]);
   const [edges,      setEdges]      = useState([]);
@@ -135,6 +137,8 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
   const [saveStatus, setSaveStatus] = useState(''); // '' | 'saving' | 'saved' | 'error'
   const [showGrid, setShowGrid] = useState(true);
   const [modelLoadStatus, setModelLoadStatus] = useState('loading');
+  const [ceilingCutPercent, setCeilingCutPercent] = useState(DEFAULT_CEILING_CUT_PERCENT);
+  const [modelHeightRange, setModelHeightRange] = useState(null);
 
   const showGridRef = useRef(true);
 
@@ -155,6 +159,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
 
     // ─ Renderer ──────────────────────────────────────────────────────────
     const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.localClippingEnabled = true;
     renderer.setPixelRatio(window.devicePixelRatio);
     // false: CSS가 캔버스 표시 크기를 담당 (픽셀 버퍼만 설정)
     renderer.setSize(mount.clientWidth, mount.clientHeight, false);
@@ -229,6 +234,8 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
       drag: null,
       splatRenderer: createSplatRenderer({ renderer, camera, scene }),
       modelMesh: null,
+      modelClipPlane: new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
+      modelBounds: null,
       nodeScale: 1.0,  // PLY 로드 후 바운딩 박스 기준으로 갱신
     };
     threeRef.current = s;
@@ -728,6 +735,11 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
       geo.computeBoundingBox();
       const box = geo.boundingBox;
       if (!box) return;
+      s.modelBounds = box.clone();
+      setModelHeightRange({
+        min: box.min.y,
+        max: box.max.y,
+      });
 
       const center = new THREE.Vector3();
       box.getCenter(center);
@@ -753,6 +765,23 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
       orbit.update();
     };
 
+    const applyCeilingClip = () => {
+      if (!s.modelBounds || !s.modelMesh) return;
+      const minY = s.modelBounds.min.y;
+      const maxY = s.modelBounds.max.y;
+      const ratio = THREE.MathUtils.clamp(ceilingCutRef.current / 100, 0, 1);
+      const cutY = minY + (maxY - minY) * ratio;
+      s.modelClipPlane.constant = cutY;
+      const materials = Array.isArray(s.modelMesh.material)
+        ? s.modelMesh.material
+        : [s.modelMesh.material];
+      materials.forEach((material) => {
+        material.clippingPlanes = [s.modelClipPlane];
+        material.clipIntersection = false;
+        material.needsUpdate = true;
+      });
+    };
+
     const loadPlyBounds = (plyUrl) => new Promise((resolve, reject) => {
       new PLYLoader().load(
         plyUrl,
@@ -770,19 +799,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
     const loadModel = async (modelUrl) => {
       const editorModelUrl = modelUrl || DEFAULT_MODEL_URL;
       setModelLoadStatus('loading');
-      try {
-        await loadPlyBounds(editorModelUrl);
-      } catch (error) {
-        console.warn('Could not read PLY bounds in graph editor.', editorModelUrl, error);
-      }
-
-      try {
-        await s.splatRenderer.loadSplatModel(editorModelUrl, SPLAT_MODEL_TRANSFORM);
-        setModelLoadStatus('ready');
-      } catch (error) {
-        console.warn('Could not render model as 3DGS in graph editor. Falling back to PLY mesh.', editorModelUrl, error);
-        loadPly(editorModelUrl, editorModelUrl !== DEFAULT_MODEL_URL);
-      }
+      loadPly(editorModelUrl, editorModelUrl !== DEFAULT_MODEL_URL);
     };
 
     const loadPly = (plyUrl, canFallbackToDefault = false) => {
@@ -790,19 +807,29 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
         plyUrl,
         (geo) => {
           geo.rotateX(MODEL_ROTATION_X);
-          geo.computeVertexNormals();
-          const mat = new THREE.MeshLambertMaterial({
+          geo.computeBoundingBox();
+          const box = geo.boundingBox;
+          const pointSizeBounds = new THREE.Vector3();
+          box?.getSize(pointSizeBounds);
+          const maxDimForPointSize = Math.max(pointSizeBounds.x, pointSizeBounds.y, pointSizeBounds.z, 1);
+          const mat = new THREE.PointsMaterial({
             vertexColors: !!geo.attributes.color,
             color: 0x8090a0,
             transparent: true,
-            opacity: 0.4,
-            side: THREE.DoubleSide,
+            opacity: 0.72,
+            size: THREE.MathUtils.clamp(maxDimForPointSize * 0.0012, 0.006, 0.04),
+            sizeAttenuation: true,
           });
-          const mesh = new THREE.Mesh(geo, mat);
+          const mesh = new THREE.Points(geo, mat);
           s.modelMesh = mesh;
           scene.add(mesh);
-          geo.computeBoundingBox();
-          const box    = geo.boundingBox;
+          s.modelBounds = box?.clone() || null;
+          if (s.modelBounds) {
+            setModelHeightRange({
+              min: s.modelBounds.min.y,
+              max: s.modelBounds.max.y,
+            });
+          }
           const center = new THREE.Vector3();
           box.getCenter(center);
           const floorY = center.y - box.getSize(new THREE.Vector3()).y * EDITOR_GROUND_CENTER_OFFSET_RATIO;
@@ -827,6 +854,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
           // 카메라를 모델 위에서 바라보도록 재배치 (Y-up)
           camera.position.set(center.x, center.y + maxDim * 0.8, center.z + maxDim);
           orbit.update();
+          applyCeilingClip();
           setModelLoadStatus('ready');
         },
         undefined,
@@ -995,6 +1023,29 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
     });
   };
 
+  const applyCeilingCutToModel = (percent) => {
+    const s = threeRef.current;
+    if (!s?.modelBounds || !s?.modelMesh || !s?.modelClipPlane) return;
+    const minY = s.modelBounds.min.y;
+    const maxY = s.modelBounds.max.y;
+    const ratio = THREE.MathUtils.clamp(percent / 100, 0, 1);
+    s.modelClipPlane.constant = minY + (maxY - minY) * ratio;
+    const materials = Array.isArray(s.modelMesh.material)
+      ? s.modelMesh.material
+      : [s.modelMesh.material];
+    materials.forEach((material) => {
+      material.clippingPlanes = [s.modelClipPlane];
+      material.needsUpdate = true;
+    });
+  };
+
+  const handleCeilingCutChange = (event) => {
+    const next = Number(event.target.value);
+    ceilingCutRef.current = next;
+    setCeilingCutPercent(next);
+    applyCeilingCutToModel(next);
+  };
+
   // ─── 렌더 ────────────────────────────────────────────────────────────────
   return (
     <div className="navgraph-page">
@@ -1046,6 +1097,27 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
             >
               {addMode ? '⬤ 배치 중… (빈 공간 클릭)' : '+ 노드 추가'}
             </button>
+          </div>
+
+          <div className="navgraph-section navgraph-ceiling-control">
+            <div className="navgraph-list-header">천장 컷</div>
+            <label className="navgraph-slider-row">
+              <span>표시 높이</span>
+              <strong>{ceilingCutPercent}%</strong>
+            </label>
+            <input
+              className="navgraph-range"
+              type="range"
+              min="5"
+              max="100"
+              step="1"
+              value={ceilingCutPercent}
+              disabled={!modelHeightRange || modelLoadStatus !== 'ready'}
+              onChange={handleCeilingCutChange}
+            />
+            <div className="navgraph-control-hint">
+              값을 낮추면 위쪽 천장부터 숨깁니다.
+            </div>
           </div>
 
           {selNode && (
