@@ -134,6 +134,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
   const [spaces,     setSpaces]     = useState([]);
   const [saveStatus, setSaveStatus] = useState(''); // '' | 'saving' | 'saved' | 'error'
   const [showGrid, setShowGrid] = useState(true);
+  const [modelLoadStatus, setModelLoadStatus] = useState('loading');
 
   const showGridRef = useRef(true);
 
@@ -768,6 +769,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
 
     const loadModel = async (modelUrl) => {
       const editorModelUrl = modelUrl || DEFAULT_MODEL_URL;
+      setModelLoadStatus('loading');
       try {
         await loadPlyBounds(editorModelUrl);
       } catch (error) {
@@ -776,6 +778,7 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
 
       try {
         await s.splatRenderer.loadSplatModel(editorModelUrl, SPLAT_MODEL_TRANSFORM);
+        setModelLoadStatus('ready');
       } catch (error) {
         console.warn('Could not render model as 3DGS in graph editor. Falling back to PLY mesh.', editorModelUrl, error);
         loadPly(editorModelUrl, editorModelUrl !== DEFAULT_MODEL_URL);
@@ -824,11 +827,13 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
           // 카메라를 모델 위에서 바라보도록 재배치 (Y-up)
           camera.position.set(center.x, center.y + maxDim * 0.8, center.z + maxDim);
           orbit.update();
+          setModelLoadStatus('ready');
         },
         undefined,
         (error) => {
           console.warn('Could not load PLY in graph editor.', plyUrl, error);
           if (canFallbackToDefault && plyUrl !== DEFAULT_MODEL_URL) loadPly(DEFAULT_MODEL_URL, false);
+          else setModelLoadStatus('error');
         },
       );
     };
@@ -1013,7 +1018,25 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
       </header>
 
       <div className="navgraph-body">
-        <div ref={mountRef} className="navgraph-canvas" />
+        <div className="navgraph-canvas-wrap">
+          <div ref={mountRef} className="navgraph-canvas" />
+          {modelLoadStatus === 'loading' && (
+            <div className="navgraph-model-loading">
+              <div className="navgraph-model-loading-box">
+                <div className="navgraph-model-loading-title">PLY 모델을 불러오는 중입니다</div>
+                <div className="navgraph-model-loading-sub">파일 크기에 따라 시간이 걸릴 수 있습니다.</div>
+              </div>
+            </div>
+          )}
+          {modelLoadStatus === 'error' && (
+            <div className="navgraph-model-loading navgraph-model-loading-error">
+              <div className="navgraph-model-loading-box">
+                <div className="navgraph-model-loading-title">PLY 모델을 불러오지 못했습니다</div>
+                <div className="navgraph-model-loading-sub">파일 또는 네트워크 상태를 확인하세요.</div>
+              </div>
+            </div>
+          )}
+        </div>
 
         <aside className="navgraph-panel">
           <div className="navgraph-section">
