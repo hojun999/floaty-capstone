@@ -15,6 +15,47 @@ export function createSplatRenderer({ renderer, camera }) {
   let viewer = null;
   let loaded = false;
   let loadingToken = 0;
+  let ceilingClip = { enabled: false, y: Infinity };
+
+  const getSplatMaterial = () => {
+    const splatMesh = viewer?.getSplatMesh?.();
+    return splatMesh?.material || null;
+  };
+
+  const patchCeilingClipShader = () => {
+    const material = getSplatMaterial();
+    if (!material?.uniforms || material.userData?.ceilingClipPatched) return Boolean(material);
+
+    material.uniforms.ceilingClipEnabled = { value: ceilingClip.enabled ? 1 : 0 };
+    material.uniforms.ceilingClipY = { value: ceilingClip.y };
+
+    material.vertexShader = material.vertexShader
+      .replace(
+        'uniform float splatScale;',
+        'uniform float splatScale;\n        uniform int ceilingClipEnabled;\n        uniform float ceilingClipY;',
+      )
+      .replace(
+        'vec3 splatCenter = uintBitsToFloat(uvec3(sampledCenterColor.gba));',
+        `vec3 splatCenter = uintBitsToFloat(uvec3(sampledCenterColor.gba));
+            if (ceilingClipEnabled == 1 && splatCenter.y > ceilingClipY) {
+                gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+                return;
+            }`,
+      );
+
+    material.userData.ceilingClipPatched = true;
+    material.needsUpdate = true;
+    return true;
+  };
+
+  const applyCeilingClipUniforms = () => {
+    if (!patchCeilingClipShader()) return;
+    const material = getSplatMaterial();
+    if (!material?.uniforms?.ceilingClipEnabled || !material?.uniforms?.ceilingClipY) return;
+    material.uniforms.ceilingClipEnabled.value = ceilingClip.enabled ? 1 : 0;
+    material.uniforms.ceilingClipY.value = ceilingClip.y;
+    material.uniformsNeedUpdate = true;
+  };
 
   const ensureViewer = () => {
     if (viewer) return viewer;
@@ -71,7 +112,23 @@ export function createSplatRenderer({ renderer, camera }) {
 
     loaded = false;
     await activeViewer.addSplatScene(path, sceneOptions);
-    if (currentToken === loadingToken) loaded = true;
+    if (currentToken === loadingToken) {
+      loaded = true;
+      applyCeilingClipUniforms();
+    }
+  };
+
+  const setCeilingClipY = (y, enabled = true) => {
+    ceilingClip = {
+      enabled: Boolean(enabled) && Number.isFinite(y),
+      y: Number.isFinite(y) ? y : Infinity,
+    };
+    applyCeilingClipUniforms();
+  };
+
+  const clearCeilingClip = () => {
+    ceilingClip = { enabled: false, y: Infinity };
+    applyCeilingClipUniforms();
   };
 
   const update = () => {
@@ -98,6 +155,8 @@ export function createSplatRenderer({ renderer, camera }) {
 
   return {
     loadSplatModel,
+    setCeilingClipY,
+    clearCeilingClip,
     unload,
     update,
     render,

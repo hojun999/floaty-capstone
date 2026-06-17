@@ -159,7 +159,6 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
 
     // ─ Renderer ──────────────────────────────────────────────────────────
     const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.localClippingEnabled = true;
     renderer.setPixelRatio(window.devicePixelRatio);
     // false: CSS가 캔버스 표시 크기를 담당 (픽셀 버퍼만 설정)
     renderer.setSize(mount.clientWidth, mount.clientHeight, false);
@@ -233,8 +232,6 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
       downPos: null,
       drag: null,
       splatRenderer: createSplatRenderer({ renderer, camera, scene }),
-      modelMesh: null,
-      modelClipPlane: new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
       modelBounds: null,
       nodeScale: 1.0,  // PLY 로드 후 바운딩 박스 기준으로 갱신
     };
@@ -766,20 +763,12 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
     };
 
     const applyCeilingClip = () => {
-      if (!s.modelBounds || !s.modelMesh) return;
+      if (!s.modelBounds || !s.splatRenderer) return;
       const minY = s.modelBounds.min.y;
       const maxY = s.modelBounds.max.y;
       const ratio = THREE.MathUtils.clamp(ceilingCutRef.current / 100, 0, 1);
       const cutY = minY + (maxY - minY) * ratio;
-      s.modelClipPlane.constant = cutY;
-      const materials = Array.isArray(s.modelMesh.material)
-        ? s.modelMesh.material
-        : [s.modelMesh.material];
-      materials.forEach((material) => {
-        material.clippingPlanes = [s.modelClipPlane];
-        material.clipIntersection = false;
-        material.needsUpdate = true;
-      });
+      s.splatRenderer.setCeilingClipY(cutY, ceilingCutRef.current < 100);
     };
 
     const loadPlyBounds = (plyUrl) => new Promise((resolve, reject) => {
@@ -799,7 +788,26 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
     const loadModel = async (modelUrl) => {
       const editorModelUrl = modelUrl || DEFAULT_MODEL_URL;
       setModelLoadStatus('loading');
-      loadPly(editorModelUrl, editorModelUrl !== DEFAULT_MODEL_URL);
+      try {
+        await loadPlyBounds(editorModelUrl);
+        await s.splatRenderer.loadSplatModel(editorModelUrl, SPLAT_MODEL_TRANSFORM);
+        applyCeilingClip();
+        setModelLoadStatus('ready');
+      } catch (error) {
+        console.warn('Could not load splat model in graph editor.', editorModelUrl, error);
+        if (editorModelUrl !== DEFAULT_MODEL_URL) {
+          try {
+            await loadPlyBounds(DEFAULT_MODEL_URL);
+            await s.splatRenderer.loadSplatModel(DEFAULT_MODEL_URL, SPLAT_MODEL_TRANSFORM);
+            applyCeilingClip();
+            setModelLoadStatus('ready');
+            return;
+          } catch (fallbackError) {
+            console.warn('Could not load fallback splat model in graph editor.', fallbackError);
+          }
+        }
+        setModelLoadStatus('error');
+      }
     };
 
     const loadPly = (plyUrl, canFallbackToDefault = false) => {
@@ -1025,18 +1033,12 @@ export default function NavGraphEditor({ onExit, floorId, floorLabel, onSaveGrap
 
   const applyCeilingCutToModel = (percent) => {
     const s = threeRef.current;
-    if (!s?.modelBounds || !s?.modelMesh || !s?.modelClipPlane) return;
+    if (!s?.modelBounds || !s?.splatRenderer) return;
     const minY = s.modelBounds.min.y;
     const maxY = s.modelBounds.max.y;
     const ratio = THREE.MathUtils.clamp(percent / 100, 0, 1);
-    s.modelClipPlane.constant = minY + (maxY - minY) * ratio;
-    const materials = Array.isArray(s.modelMesh.material)
-      ? s.modelMesh.material
-      : [s.modelMesh.material];
-    materials.forEach((material) => {
-      material.clippingPlanes = [s.modelClipPlane];
-      material.needsUpdate = true;
-    });
+    const cutY = minY + (maxY - minY) * ratio;
+    s.splatRenderer.setCeilingClipY(cutY, percent < 100);
   };
 
   const handleCeilingCutChange = (event) => {
