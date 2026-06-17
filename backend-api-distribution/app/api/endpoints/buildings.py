@@ -16,11 +16,15 @@ from app.schemas.building import (
     FloorCreate,
     FloorResponse,
     FloorUpdate,
+    PlyUploadCompleteRequest,
+    PlyUploadPrepareRequest,
+    PlyUploadPrepareResponse,
     SpaceCreate,
     SpaceResponse,
     SpaceUpdate,
 )
 from app.services.r2_storage import (
+    create_presigned_ply_upload,
     get_ply_object_from_r2,
     object_key_from_public_url,
     upload_ply_bytes_to_r2,
@@ -159,6 +163,44 @@ def upload_floor_ply(
     return floor
 
 
+@router.post("/floors/{floor_id}/ply-upload", response_model=PlyUploadPrepareResponse)
+def prepare_floor_ply_upload(
+    floor_id: int,
+    data: PlyUploadPrepareRequest,
+    db: Session = Depends(get_db),
+):
+    floor = db.query(Floor).filter(Floor.id == floor_id).first()
+    if not floor:
+        raise HTTPException(status_code=404, detail="Floor not found")
+    upload = _create_presigned_ply_upload_or_error(
+        f"buildings/{floor.building_id}/floors/{floor.id}",
+        data.filename,
+    )
+    return PlyUploadPrepareResponse(**upload.__dict__)
+
+
+@router.post("/floors/{floor_id}/ply-upload/complete", response_model=FloorResponse)
+def complete_floor_ply_upload(
+    floor_id: int,
+    data: PlyUploadCompleteRequest,
+    db: Session = Depends(get_db),
+):
+    floor = db.query(Floor).filter(Floor.id == floor_id).first()
+    if not floor:
+        raise HTTPException(status_code=404, detail="Floor not found")
+    _ensure_object_key_prefix(
+        data.object_key,
+        f"buildings/{floor.building_id}/floors/{floor.id}/",
+    )
+    floor.splat_path = data.url
+    floor.editor_splat_path = data.url
+    floor.editor_object_key = data.object_key
+    floor.status = "completed"
+    db.commit()
+    db.refresh(floor)
+    return floor
+
+
 @router.get("/floors/{floor_id}/ply-file")
 def get_floor_ply_file(floor_id: int, db: Session = Depends(get_db)):
     floor = db.query(Floor).filter(Floor.id == floor_id).first()
@@ -269,6 +311,56 @@ def upload_space_ply(
     return space
 
 
+@router.post("/spaces/{space_id}/ply-upload", response_model=PlyUploadPrepareResponse)
+def prepare_space_ply_upload(
+    space_id: int,
+    data: PlyUploadPrepareRequest,
+    db: Session = Depends(get_db),
+):
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
+        raise HTTPException(status_code=404, detail="Space not found")
+
+    floor = db.query(Floor).filter(Floor.id == space.floor_id).first()
+    if not floor:
+        raise HTTPException(status_code=404, detail="Floor not found")
+
+    upload = _create_presigned_ply_upload_or_error(
+        f"buildings/{floor.building_id}/floors/{floor.id}/spaces/{space.id}",
+        data.filename,
+    )
+    return PlyUploadPrepareResponse(**upload.__dict__)
+
+
+@router.post("/spaces/{space_id}/ply-upload/complete", response_model=SpaceResponse)
+def complete_space_ply_upload(
+    space_id: int,
+    data: PlyUploadCompleteRequest,
+    db: Session = Depends(get_db),
+):
+    space = db.query(Space).filter(Space.id == space_id).first()
+    if not space:
+        raise HTTPException(status_code=404, detail="Space not found")
+
+    floor = db.query(Floor).filter(Floor.id == space.floor_id).first()
+    if not floor:
+        raise HTTPException(status_code=404, detail="Floor not found")
+
+    _ensure_object_key_prefix(
+        data.object_key,
+        f"buildings/{floor.building_id}/floors/{floor.id}/spaces/{space.id}/",
+    )
+    space.splat_path = data.url
+    space.editor_splat_path = data.url
+    space.editor_object_key = data.object_key
+    space.object_key = data.object_key
+    space.original_filename = data.original_filename
+    space.status = "completed"
+    db.commit()
+    db.refresh(space)
+    return space
+
+
 @router.get("/spaces/{space_id}/ply-file")
 def get_space_ply_file(space_id: int, db: Session = Depends(get_db)):
     space = db.query(Space).filter(Space.id == space_id).first()
@@ -311,6 +403,20 @@ def _upload_ply_pair_or_error(file: UploadFile, original_prefix: str, editor_pre
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _create_presigned_ply_upload_or_error(prefix: str, filename: str):
+    try:
+        return create_presigned_ply_upload(prefix, original_filename=filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _ensure_object_key_prefix(object_key: str, expected_prefix: str) -> None:
+    if not object_key.startswith(expected_prefix):
+        raise HTTPException(status_code=422, detail="Uploaded object key does not match target")
 
 
 def _delete_floor_dependents(db: Session, floor_ids: list[int]) -> None:

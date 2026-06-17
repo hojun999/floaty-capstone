@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const DEFAULT_API_BASE = 'https://port-0-floaty-capstone-mq4vuon6474fb398.sel3.cloudtype.app';
+const DEFAULT_API_BASE = 'https://port-0-floaty-capstone-free-mq4vuon6474fb398.sel3.cloudtype.app';
 const normalizeApiBase = (value) => String(value || '').replace(/\/+$/, '');
 
 export const API_BASE = normalizeApiBase(
@@ -8,7 +8,7 @@ export const API_BASE = normalizeApiBase(
 );
 
 const api = axios.create({ baseURL: API_BASE, timeout: 30000 });
-const PLY_UPLOAD_TIMEOUT_MS = 120000;
+const PLY_UPLOAD_TIMEOUT_MS = 600000;
 
 export const describeApiError = (error, fallback = 'Request failed.') => {
   const method = error?.config?.method?.toUpperCase?.() || 'REQUEST';
@@ -34,21 +34,66 @@ export const createFloor = (body) => api.post('/api/floors', body).then(r => r.d
 export const fetchFloor = (floorId) => api.get(`/api/floors/${floorId}`).then(r => r.data);
 export const updateFloor = (floorId, body) => api.patch(`/api/floors/${floorId}`, body).then(r => r.data);
 export const deleteFloor = (floorId) => api.delete(`/api/floors/${floorId}`).then(r => r.data);
-export const uploadFloorPly = (floorId, file) => {
+export const uploadFloorPlyViaApi = (floorId, file) => {
   const formData = new FormData();
   formData.append('ply_file', file);
   return api.post(`/api/floors/${floorId}/ply`, formData, { timeout: PLY_UPLOAD_TIMEOUT_MS }).then(r => r.data);
 };
+export const prepareFloorPlyUpload = (floorId, filename) => (
+  api.post(`/api/floors/${floorId}/ply-upload`, { filename }).then(r => r.data)
+);
+export const completeFloorPlyUpload = (floorId, body) => (
+  api.post(`/api/floors/${floorId}/ply-upload/complete`, body).then(r => r.data)
+);
 
 export const fetchSpaces = (floorId) => api.get('/api/spaces', { params: { floor_id: floorId } }).then(r => r.data);
 export const createSpace = (body) => api.post('/api/spaces', body).then(r => r.data);
 export const fetchSpace = (spaceId) => api.get(`/api/spaces/${spaceId}`).then(r => r.data);
 export const updateSpace = (spaceId, body) => api.patch(`/api/spaces/${spaceId}`, body).then(r => r.data);
 export const deleteSpace = (spaceId) => api.delete(`/api/spaces/${spaceId}`).then(r => r.data);
-export const uploadSpacePly = (spaceId, file) => {
+export const uploadSpacePlyViaApi = (spaceId, file) => {
   const formData = new FormData();
   formData.append('ply_file', file);
   return api.post(`/api/spaces/${spaceId}/ply`, formData, { timeout: PLY_UPLOAD_TIMEOUT_MS }).then(r => r.data);
+};
+export const prepareSpacePlyUpload = (spaceId, filename) => (
+  api.post(`/api/spaces/${spaceId}/ply-upload`, { filename }).then(r => r.data)
+);
+export const completeSpacePlyUpload = (spaceId, body) => (
+  api.post(`/api/spaces/${spaceId}/ply-upload/complete`, body).then(r => r.data)
+);
+
+const uploadPlyDirectToR2 = async (upload, file) => {
+  const response = await fetch(upload.upload_url, {
+    method: upload.method || 'PUT',
+    headers: {
+      'Content-Type': upload.content_type || 'application/octet-stream',
+    },
+    body: file,
+  });
+  if (!response.ok) {
+    throw new Error(`R2 upload failed (${response.status} ${response.statusText})`);
+  }
+};
+
+export const uploadFloorPly = async (floorId, file) => {
+  const upload = await prepareFloorPlyUpload(floorId, file.name);
+  await uploadPlyDirectToR2(upload, file);
+  return completeFloorPlyUpload(floorId, {
+    object_key: upload.object_key,
+    url: upload.url,
+    original_filename: file.name,
+  });
+};
+
+export const uploadSpacePly = async (spaceId, file) => {
+  const upload = await prepareSpacePlyUpload(spaceId, file.name);
+  await uploadPlyDirectToR2(upload, file);
+  return completeSpacePlyUpload(spaceId, {
+    object_key: upload.object_key,
+    url: upload.url,
+    original_filename: file.name,
+  });
 };
 
 export const floorPlyFileUrl = (floorId) => `${API_BASE}/api/floors/${floorId}/ply-file`;

@@ -38,6 +38,25 @@ class FloorUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class PlyUploadPrepareRequest(BaseModel):
+    filename: str
+
+
+class PlyUploadPrepareResponse(BaseModel):
+    object_key: str
+    url: str
+    upload_url: str
+    method: str
+    content_type: str
+    expires_in: int
+
+
+class PlyUploadCompleteRequest(BaseModel):
+    object_key: str
+    url: str
+    original_filename: Optional[str] = None
+
+
 class FloorResponse(BaseModel):
     id: int
     building_id: int

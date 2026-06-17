@@ -24,6 +24,16 @@ class R2UploadResult:
 
 
 @dataclass
+class R2PresignedUpload:
+    object_key: str
+    url: str
+    upload_url: str
+    method: str
+    content_type: str
+    expires_in: int
+
+
+@dataclass
 class R2ObjectResult:
     body: object
     content_length: int | None
@@ -95,6 +105,64 @@ def upload_ply_bytes_to_r2(
         object_key=object_key,
         url=f"{public_base_url.rstrip('/')}/{object_key}",
         original_filename=original_filename,
+    )
+
+
+def create_presigned_ply_upload(
+    prefix: str,
+    *,
+    original_filename: str | None = None,
+    expires_in: int = 3600,
+) -> R2PresignedUpload:
+    _validate_ply_filename(original_filename)
+    account_id = get_r2_account_id()
+    access_key_id = get_r2_access_key_id()
+    secret_access_key = get_r2_secret_access_key()
+    bucket_name = get_r2_bucket_name()
+    public_base_url = get_r2_public_base_url()
+    if not all([account_id, access_key_id, secret_access_key, bucket_name, public_base_url]):
+        raise RuntimeError(
+            "Cloudflare R2 upload is not configured. Set R2_ACCOUNT_ID, "
+            "R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, and "
+            "R2_PUBLIC_BASE_URL."
+        )
+
+    try:
+        import boto3
+    except ImportError as exc:
+        raise RuntimeError("boto3 is not installed. Install project dependencies.") from exc
+
+    object_key = _build_object_key(prefix)
+    content_type = "application/octet-stream"
+    try:
+        client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            region_name="auto",
+        )
+        upload_url = client.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": bucket_name,
+                "Key": object_key,
+                "ContentType": content_type,
+            },
+            ExpiresIn=expires_in,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Cloudflare R2 presigned upload failed: {exc.__class__.__name__}: {exc}"
+        ) from exc
+
+    return R2PresignedUpload(
+        object_key=object_key,
+        url=f"{public_base_url.rstrip('/')}/{object_key}",
+        upload_url=upload_url,
+        method="PUT",
+        content_type=content_type,
+        expires_in=expires_in,
     )
 
 
